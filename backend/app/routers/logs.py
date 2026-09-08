@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, Query
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,12 +17,28 @@ router = APIRouter(prefix="/api/logs", tags=["logs"], dependencies=[Depends(requ
 async def list_all(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    start_at: datetime | None = Query(None, description="Only logs at or after this timestamp"),
+    end_at: datetime | None = Query(None, description="Only logs at or before this timestamp"),
     db: AsyncSession = Depends(get_db),
 ):
-    total = (await db.execute(select(func.count(ChatLog.id)))).scalar_one()
-    result = await db.execute(
-        select(ChatLog).order_by(ChatLog.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
-    )
+    if start_at is not None and end_at is not None and start_at > end_at:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="start_at must be before end_at"
+        )
+
+    stmt = select(ChatLog)
+    count_stmt = select(func.count(ChatLog.id))
+
+    if start_at is not None:
+        stmt = stmt.where(ChatLog.created_at >= start_at)
+        count_stmt = count_stmt.where(ChatLog.created_at >= start_at)
+    if end_at is not None:
+        stmt = stmt.where(ChatLog.created_at <= end_at)
+        count_stmt = count_stmt.where(ChatLog.created_at <= end_at)
+
+    total = (await db.execute(count_stmt)).scalar_one()
+    stmt = stmt.order_by(ChatLog.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    result = await db.execute(stmt)
     items = list(result.scalars().all())
     return PaginatedResponse(
         items=[ChatLogOut.model_validate(item) for item in items],
