@@ -174,3 +174,10 @@ deploy/     Compose file and Postgres init scripts
   it to the retrieved knowledge-base context, and falls back to the
   configured fallback message whenever similarity is below threshold or the
   model signals it cannot answer from context alone.
+
+## The whole stack is up from a single command
+
+- podman-compose -f deploy/podman-compose.yml --env-file .env up -d --build
+- Chat: http://localhost:3000
+- Admin: http://localhost:3000/admin/login (admin / changeme123)
+- Backend: http://localhost:8001
