@@ -233,18 +233,30 @@ netsh interface portproxy delete v4tov4 listenaddress=0.0.0.0 listenport=7001
 ## AI Engine (OpenRouter)
 
 The system uses **OpenRouter** for both generation and embeddings, via a
-single API key. Configure it from the admin panel:
+single API key. The admin panel's **Settings** page only exposes the two
+fields most people need to change:
 
 1. Log in as an admin user.
 2. Go to **Settings**.
-3. Provide an **OpenRouter API Key**, a generation model (default suggestion:
-   `meta-llama/llama-3-70b-instruct`), and an embedding model (default:
-   `openai/text-embedding-3-small`), then save.
+3. Provide an **OpenRouter API Key** and a generation **Model**, then save.
 
 No code changes or redeploys are required — the change takes effect on the
-next chat request. Changing the embedding model requires re-indexing (see
-above), since existing vectors were produced by the previous model at a
-possibly different dimension.
+next chat request.
+
+**Generation model default: `openrouter/free`** — OpenRouter's own router
+that automatically picks a currently-available free model, so answers cost
+nothing and there's no specific model to keep up to date by hand. It's rate
+limited rather than billed (starts at 20 requests/min, 200/day; rises to
+1,000/day once you've ever added $10+ in OpenRouter credit, which doesn't
+need to be spent). Set a specific paid model string instead if you want
+consistent behavior from one named model rather than whichever free one
+OpenRouter routes to.
+
+**Embedding model** (`openai/text-embedding-3-small` by default) isn't
+exposed in the Settings UI — it's a config-only value (`OPENROUTER_EMBEDDING_MODEL`
+in `.env`, or edit `backend/app/core/config.py`), since changing it requires
+re-indexing (see above): existing vectors were produced by the previous model
+at a possibly different dimension.
 
 ## Off-Topic Chatter vs. Unanswered Questions
 
