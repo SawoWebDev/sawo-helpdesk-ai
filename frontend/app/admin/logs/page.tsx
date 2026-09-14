@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { apiDelete, apiGet, ApiError } from "@/lib/api";
+import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 import Pagination from "@/components/admin/Pagination";
 
@@ -33,6 +33,8 @@ export default function LogsPage() {
   const [endAt, setEndAt] = useState("");
   const [clearing, setClearing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [savingLogId, setSavingLogId] = useState<number | null>(null);
+  const [savedLogIds, setSavedLogIds] = useState<Set<number>>(new Set());
   const pageSize = 20;
 
   function loadLogs() {
@@ -57,6 +59,20 @@ export default function LogsPage() {
     setStartAt("");
     setEndAt("");
     setPage(1);
+  }
+
+  async function handleSaveAsFaq(log: ChatLog) {
+    if (!confirm("Save this answer as a new FAQ entry (draft, for review)?")) return;
+    setSavingLogId(log.id);
+    setError(null);
+    try {
+      await apiPost(`/api/logs/${log.id}/save-as-faq`, {});
+      setSavedLogIds((prev) => new Set(prev).add(log.id));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to save as FAQ");
+    } finally {
+      setSavingLogId(null);
+    }
   }
 
   async function handleClearAll() {
@@ -160,33 +176,50 @@ export default function LogsPage() {
               <th className="px-4 py-2">Sources</th>
               <th className="px-4 py-2">Engine</th>
               <th className="px-4 py-2">Time</th>
+              <th className="px-4 py-2"></th>
             </tr>
           </thead>
           <tbody>
-            {logs.map((log) => (
-              <tr key={log.id} className="border-t border-slate-100 align-top">
-                <td className="max-w-xs px-4 py-2">{log.question_text}</td>
-                <td className="max-w-xs truncate px-4 py-2">{log.answer_text}</td>
-                <td className="px-4 py-2">
-                  {log.confidence_score !== null ? log.confidence_score.toFixed(2) : "—"}
-                </td>
-                <td className="px-4 py-2 text-slate-500">
-                  {log.matched_faq_ids.length === 0 && log.matched_vault_ids.length === 0
-                    ? "—"
-                    : [
-                        log.matched_faq_ids.length > 0 ? `${log.matched_faq_ids.length} FAQ` : null,
-                        log.matched_vault_ids.length > 0 ? `${log.matched_vault_ids.length} Vault` : null,
-                      ]
-                        .filter(Boolean)
-                        .join(", ")}
-                </td>
-                <td className="px-4 py-2">{log.engine_used}</td>
-                <td className="px-4 py-2 text-slate-500">{new Date(log.created_at).toLocaleString()}</td>
-              </tr>
-            ))}
+            {logs.map((log) => {
+              const hasMatch = log.matched_faq_ids.length > 0 || log.matched_vault_ids.length > 0;
+              const isSaved = savedLogIds.has(log.id);
+              const isSaving = savingLogId === log.id;
+              return (
+                <tr key={log.id} className="border-t border-slate-100 align-top">
+                  <td className="max-w-xs px-4 py-2">{log.question_text}</td>
+                  <td className="max-w-xs truncate px-4 py-2">{log.answer_text}</td>
+                  <td className="px-4 py-2">
+                    {log.confidence_score !== null ? log.confidence_score.toFixed(2) : "—"}
+                  </td>
+                  <td className="px-4 py-2 text-slate-500">
+                    {!hasMatch
+                      ? "—"
+                      : [
+                          log.matched_faq_ids.length > 0 ? `${log.matched_faq_ids.length} FAQ` : null,
+                          log.matched_vault_ids.length > 0 ? `${log.matched_vault_ids.length} Vault` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(", ")}
+                  </td>
+                  <td className="px-4 py-2">{log.engine_used}</td>
+                  <td className="px-4 py-2 text-slate-500">{new Date(log.created_at).toLocaleString()}</td>
+                  <td className="px-4 py-2 text-right">
+                    {hasMatch && (
+                      <button
+                        onClick={() => handleSaveAsFaq(log)}
+                        disabled={isSaving || isSaved}
+                        className="whitespace-nowrap text-blue-600 disabled:cursor-not-allowed disabled:text-slate-300"
+                      >
+                        {isSaved ? "Saved" : isSaving ? "Saving..." : "Save as FAQ"}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
             {logs.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={7} className="px-4 py-6 text-center text-slate-400">
                   No chat logs found for this filter.
                 </td>
               </tr>
