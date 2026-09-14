@@ -203,17 +203,30 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
         )
         vault_by_id = {entry.id: entry for entry in vault_result.scalars()}
 
-    # Merge FAQ + Vault candidates by similarity (higher = closer). Only drop
-    # ones below off_topic_threshold — that floor separates "plausibly
-    # related" from "pure noise" — rather than the stricter confidence_threshold,
-    # which is now just a signal for is_fallback/logging, not a hard gate.
-    all_rows = sorted(
-        [(("faq", faq_by_id[entry_id]), similarity) for entry_id, similarity in faq_hits if entry_id in faq_by_id]
-        + [(("vault", vault_by_id[entry_id]), similarity) for entry_id, similarity in vault_hits if entry_id in vault_by_id],
+    faq_rows = sorted(
+        [(("faq", faq_by_id[entry_id]), similarity) for entry_id, similarity in faq_hits if entry_id in faq_by_id],
         key=lambda pair: pair[1],
         reverse=True,
     )
-    rows = [pair for pair in all_rows if pair[1] >= off_topic_threshold][:top_k]
+    vault_rows = [
+        (("vault", vault_by_id[entry_id]), similarity) for entry_id, similarity in vault_hits if entry_id in vault_by_id
+    ]
+
+    # Resolution order: FAQ is the primary tier, Library (Vault) is the
+    # secondary tier — but FAQ only wins outright on a high-confidence,
+    # near-exact match (>= confidence_threshold). A weak/tangential FAQ hit
+    # must not block a genuinely better Library answer, so anything below
+    # that bar falls through to the merged FAQ+Library pool, exactly like
+    # before, letting the LLM pick the best context from both tiers.
+    if faq_rows and faq_rows[0][1] >= threshold:
+        rows = faq_rows[:top_k]
+    else:
+        # Only drop candidates below off_topic_threshold — that floor
+        # separates "plausibly related" from "pure noise" — rather than the
+        # stricter confidence_threshold, which is now just a signal for
+        # is_fallback/logging, not a hard gate.
+        all_rows = sorted(faq_rows + vault_rows, key=lambda pair: pair[1], reverse=True)
+        rows = [pair for pair in all_rows if pair[1] >= off_topic_threshold][:top_k]
 
     if not rows:
         if not await _is_on_topic(engine, question):

@@ -37,7 +37,11 @@ class Settings(BaseSettings):
         "once we have an answer."
     )
     default_confidence_threshold: float = 0.75
-    default_top_k: int = 5
+    # The Library holds dense, multi-page reference material — a narrow pool
+    # can miss a real answer that's genuinely in the book just because it
+    # doesn't rank in the top handful by raw similarity. 15 matches the depth
+    # the admin Library search box already searches with.
+    default_top_k: int = 15
     # Below this similarity, a question is treated as off-topic chatter (greetings,
     # small talk) rather than a genuine unanswered support question: it gets the
     # off-topic redirect message and is not logged for agent review.
