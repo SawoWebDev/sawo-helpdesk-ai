@@ -26,6 +26,7 @@ async def record_usage(model: str, request_type: str, usage: dict | None) -> Non
                     prompt_tokens=int(usage.get("prompt_tokens") or 0),
                     completion_tokens=int(usage.get("completion_tokens") or 0),
                     total_tokens=int(usage.get("total_tokens") or 0),
+                    cost_usd=float(usage.get("cost") or 0.0),
                 )
             )
             await db.commit()

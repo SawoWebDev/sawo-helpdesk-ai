@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { Fragment, FormEvent, useEffect, useState } from "react";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 
 interface Settings {
@@ -14,25 +14,62 @@ interface Settings {
   off_topic_message: string;
 }
 
-interface UsageSummary {
-  active_model: string;
-  active_model_is_free: boolean;
-  requests_today: number;
-  tokens_today: number;
+interface ModelUsage {
+  model: string;
+  is_free: boolean;
   requests_total: number;
   tokens_total: number;
+  cost_total_usd: number;
+  requests_today: number;
+  tokens_today: number;
+  cost_today_usd: number;
+  last_used_at: string | null;
+}
+
+interface DailyUsage {
+  day: string;
+  requests: number;
+  tokens: number;
+  cost_usd: number;
+}
+
+function formatCost(usd: number): string {
+  if (usd === 0) return "$0.00";
+  if (usd < 0.0001) return `<$0.0001`;
+  if (usd < 0.01) return `$${usd.toFixed(4)}`;
+  return `$${usd.toFixed(2)}`;
 }
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [usage, setUsage] = useState<UsageSummary | null>(null);
+  const [modelUsage, setModelUsage] = useState<ModelUsage[] | null>(null);
+  const [expandedModel, setExpandedModel] = useState<string | null>(null);
+  const [dailyUsage, setDailyUsage] = useState<DailyUsage[] | null>(null);
+  const [dailyLoading, setDailyLoading] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   function loadUsage() {
-    apiGet<UsageSummary>("/api/usage/summary").then(setUsage);
+    apiGet<ModelUsage[]>("/api/usage/models").then(setModelUsage);
+  }
+
+  async function toggleModel(model: string) {
+    if (expandedModel === model) {
+      setExpandedModel(null);
+      setDailyUsage(null);
+      return;
+    }
+    setExpandedModel(model);
+    setDailyUsage(null);
+    setDailyLoading(true);
+    try {
+      const data = await apiGet<DailyUsage[]>(`/api/usage/models/daily?model=${encodeURIComponent(model)}`);
+      setDailyUsage(data);
+    } finally {
+      setDailyLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -105,47 +142,100 @@ export default function SettingsPage() {
         </div>
       </form>
 
-      {usage && (
-        <div className="mt-8 max-w-xl rounded-lg border border-slate-200 bg-white p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-700">AI Usage Monitor</h2>
-            <span
-              className={`rounded px-2 py-0.5 text-xs font-medium ${
-                usage.active_model_is_free ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-600"
-              }`}
-            >
-              {usage.active_model_is_free ? "Free model" : "Paid model"}
-            </span>
-          </div>
-          <p className="mb-4 truncate text-xs text-slate-500" title={usage.active_model}>
-            Active model: <span className="font-medium text-slate-700">{usage.active_model || "Not set"}</span>
-          </p>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded border border-slate-100 p-3">
-              <p className="text-xs text-slate-500">Requests today</p>
-              <p className="text-xl font-semibold text-slate-800">{usage.requests_today}</p>
-            </div>
-            <div className="rounded border border-slate-100 p-3">
-              <p className="text-xs text-slate-500">Tokens today</p>
-              <p className="text-xl font-semibold text-slate-800">{usage.tokens_today.toLocaleString()}</p>
-            </div>
-            <div className="rounded border border-slate-100 p-3">
-              <p className="text-xs text-slate-500">Requests (all time)</p>
-              <p className="text-xl font-semibold text-slate-800">{usage.requests_total}</p>
-            </div>
-            <div className="rounded border border-slate-100 p-3">
-              <p className="text-xs text-slate-500">Tokens (all time)</p>
-              <p className="text-xl font-semibold text-slate-800">{usage.tokens_total.toLocaleString()}</p>
-            </div>
-          </div>
-          {usage.active_model_is_free && (
-            <p className="mt-3 text-xs text-slate-400">
-              Free OpenRouter models are rate-limited (typically 20 requests/min, 200-1000/day)
-              rather than billed — token counts here are for tracking that quota, not cost.
-            </p>
-          )}
+      <div className="mt-8 max-w-3xl">
+        <h2 className="mb-3 text-sm font-semibold text-slate-700">AI Usage Monitor</h2>
+        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-left text-slate-500">
+              <tr>
+                <th className="px-4 py-2">Model</th>
+                <th className="px-4 py-2">Requests today</th>
+                <th className="px-4 py-2">Tokens today</th>
+                <th className="px-4 py-2">Requests (all time)</th>
+                <th className="px-4 py-2">Tokens (all time)</th>
+                <th className="px-4 py-2">Cost (all time)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(modelUsage ?? []).map((m) => (
+                <Fragment key={m.model}>
+                  <tr
+                    onClick={() => toggleModel(m.model)}
+                    className="cursor-pointer border-t border-slate-100 hover:bg-slate-50"
+                  >
+                    <td className="px-4 py-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-400">{expandedModel === m.model ? "▾" : "▸"}</span>
+                        <span className="max-w-xs truncate font-medium text-slate-800" title={m.model}>
+                          {m.model}
+                        </span>
+                        <span
+                          className={`rounded px-2 py-0.5 text-xs font-medium ${
+                            m.is_free ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {m.is_free ? "Free" : "Paid"}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2">{m.requests_today}</td>
+                    <td className="px-4 py-2">{m.tokens_today.toLocaleString()}</td>
+                    <td className="px-4 py-2">{m.requests_total}</td>
+                    <td className="px-4 py-2">{m.tokens_total.toLocaleString()}</td>
+                    <td className="px-4 py-2">{formatCost(m.cost_total_usd)}</td>
+                  </tr>
+                  {expandedModel === m.model && (
+                    <tr key={`${m.model}-detail`} className="border-t border-slate-100 bg-slate-50">
+                      <td colSpan={6} className="px-4 py-3">
+                        {m.is_free && (
+                          <p className="mb-3 text-xs text-slate-400">
+                            Free OpenRouter models are rate-limited (typically 20 requests/min,
+                            200-1000/day) rather than billed — cost is always $0 for this model; token
+                            counts below are for tracking that quota.
+                          </p>
+                        )}
+                        {dailyLoading && <p className="text-xs text-slate-400">Loading daily breakdown...</p>}
+                        {!dailyLoading && dailyUsage && dailyUsage.length === 0 && (
+                          <p className="text-xs text-slate-400">No usage recorded yet.</p>
+                        )}
+                        {!dailyLoading && dailyUsage && dailyUsage.length > 0 && (
+                          <table className="w-full text-xs">
+                            <thead className="text-left text-slate-500">
+                              <tr>
+                                <th className="py-1 pr-4">Day</th>
+                                <th className="py-1 pr-4">Requests</th>
+                                <th className="py-1 pr-4">Tokens</th>
+                                <th className="py-1 pr-4">Cost</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {dailyUsage.map((d) => (
+                                <tr key={d.day} className="border-t border-slate-200">
+                                  <td className="py-1 pr-4">{d.day}</td>
+                                  <td className="py-1 pr-4">{d.requests}</td>
+                                  <td className="py-1 pr-4">{d.tokens.toLocaleString()}</td>
+                                  <td className="py-1 pr-4">{formatCost(d.cost_usd)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+              {modelUsage && modelUsage.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-6 text-center text-slate-400">
+                    No AI usage recorded yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
-      )}
+      </div>
     </div>
   );
 }
