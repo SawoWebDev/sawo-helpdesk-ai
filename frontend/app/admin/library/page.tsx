@@ -176,6 +176,8 @@ export default function LibraryPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchAnswer, setSearchAnswer] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
+  const [searchResultsPage, setSearchResultsPage] = useState(1);
+  const searchResultsPageSize = 5;
   const [searching, setSearching] = useState(false);
 
   async function loadCategories() {
@@ -410,6 +412,7 @@ export default function LibraryPage() {
       });
       setSearchAnswer(data.answer);
       setSearchResults(data.results);
+      setSearchResultsPage(1);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Search failed");
     } finally {
@@ -591,6 +594,7 @@ export default function LibraryPage() {
               onClick={() => {
                 setSearchAnswer(null);
                 setSearchResults(null);
+                setSearchResultsPage(1);
                 setSearchQuery("");
               }}
               className="rounded border border-slate-300 px-3 py-2 text-sm text-slate-500"
@@ -617,20 +621,32 @@ export default function LibraryPage() {
             )}
             {searchResults.length > 0 && (
               <div className="flex flex-col gap-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Matched sources</p>
-                {searchResults.map((r) => (
-                  <div key={r.entry_id} className="rounded border border-slate-100 p-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-slate-800">{r.title}</span>
-                      <span className="text-xs text-slate-400">
-                        {r.match_type} · {(r.score * 100).toFixed(0)}%
-                      </span>
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                  Matched sources ({searchResults.length})
+                </p>
+                {searchResults
+                  .slice((searchResultsPage - 1) * searchResultsPageSize, searchResultsPage * searchResultsPageSize)
+                  .map((r) => (
+                    <div key={r.entry_id} className="rounded border border-slate-100 p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-slate-800">{r.title}</span>
+                        <span className="text-xs text-slate-400">
+                          {r.match_type} · {(r.score * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm text-slate-600">
+                        <HighlightedExcerpt text={r.excerpt} />
+                      </p>
                     </div>
-                    <p className="mt-1 text-sm text-slate-600">
-                      <HighlightedExcerpt text={r.excerpt} />
-                    </p>
-                  </div>
-                ))}
+                  ))}
+                {searchResults.length > searchResultsPageSize && (
+                  <Pagination
+                    page={searchResultsPage}
+                    pageSize={searchResultsPageSize}
+                    total={searchResults.length}
+                    onPageChange={setSearchResultsPage}
+                  />
+                )}
               </div>
             )}
           </div>
