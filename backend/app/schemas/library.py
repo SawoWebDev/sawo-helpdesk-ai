@@ -15,9 +15,6 @@ class LibrarySourceOut(BaseModel):
     error_message: str | None
     extracted_char_count: int | None
     chunk_count: int
-    auto_generate_faqs: bool
-    faq_generation_status: str | None
-    generated_faq_count: int
     created_at: datetime
     processed_at: datetime | None
 
@@ -26,7 +23,6 @@ class LibraryCrawlRequest(BaseModel):
     url: str
     category_id: int | None = None
     new_category_name: str | None = None
-    auto_generate_faqs: bool = True
 
 
 class LibraryBatchSummaryOut(BaseModel):
@@ -38,7 +34,6 @@ class LibraryBatchSummaryOut(BaseModel):
     pending_count: int
     category_id: int | None
     created_at: datetime
-    generated_faq_count: int
     origin_label: str
 
 
@@ -64,7 +59,6 @@ class LibraryCrawlBatchRequest(BaseModel):
     urls: list[str] = Field(min_length=1, max_length=500)
     category_id: int | None = None
     new_category_name: str | None = None
-    auto_generate_faqs: bool = True
 
 
 class LibraryCrawlBatchResponse(BaseModel):
@@ -97,20 +91,3 @@ class LibrarySearchResponse(BaseModel):
     answer: str | None
     answer_sources: list[LibraryAnswerSourceOut] = []
     results: list[LibrarySearchResult]
-
-
-class SourceFaqOut(BaseModel):
-    id: int
-    question: str
-    answer: str
-    status: str
-
-
-class JobFaqOut(BaseModel):
-    id: int
-    question: str
-    answer: str
-    status: str
-    source_id: int
-    source_url: str | None
-    source_filename: str | None

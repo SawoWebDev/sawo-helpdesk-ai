@@ -9,7 +9,6 @@ from app.ai.factory import get_active_engine, get_embedding_engine
 from app.core.config import settings
 from app.core.deps import require_agent_or_admin
 from app.crud.category import create_category, get_category, get_category_by_name
-from app.crud.faq import list_faqs_by_job, list_faqs_by_source
 from app.crud.harvest import (
     create_job,
     create_source,
@@ -25,7 +24,6 @@ from app.models.user import User
 from app.rag.pipeline import REFUSAL_SENTINEL, SYSTEM_PROMPT, _is_grounded, _sanitize_text
 from app.schemas.common import PaginatedResponse
 from app.schemas.library import (
-    JobFaqOut,
     LibraryAnswerSourceOut,
     LibraryBatchSummaryOut,
     LibraryCrawlBatchRequest,
@@ -38,9 +36,8 @@ from app.schemas.library import (
     LibrarySourceOut,
     SitemapDiscoverRequest,
     SitemapDiscoverResponse,
-    SourceFaqOut,
 )
-from app.services.library_ingest import process_file_source, process_url_source, regenerate_faqs_for_source
+from app.services.library_ingest import process_file_source, process_url_source
 from app.services.library_parsers import ParseError, discover_sitemap_urls
 
 # How many top-ranked chunks (by combined keyword+semantic score) get sent to
@@ -96,24 +93,6 @@ async def list_job_sources(job_id: int, db: AsyncSession = Depends(get_db)):
     return [LibrarySourceOut.model_validate(s) for s in sources]
 
 
-@router.get("/jobs/{job_id}/faqs", response_model=list[JobFaqOut])
-async def list_job_faqs(job_id: int, db: AsyncSession = Depends(get_db)):
-    pairs = await list_faqs_by_job(db, job_id)
-    sources_by_id = {s.id: s for s in await get_sources_by_job(db, job_id)}
-    return [
-        JobFaqOut(
-            id=faq.id,
-            question=faq.question,
-            answer=faq.answer,
-            status=faq.status,
-            source_id=source_id,
-            source_url=sources_by_id[source_id].origin_url if source_id in sources_by_id else None,
-            source_filename=sources_by_id[source_id].original_filename if source_id in sources_by_id else None,
-        )
-        for faq, source_id in pairs
-    ]
-
-
 @router.delete("/jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_library_job(job_id: int, db: AsyncSession = Depends(get_db)):
     deleted = await delete_job_and_sources(db, job_id)
@@ -127,7 +106,6 @@ async def upload(
     file: UploadFile,
     category_id: int | None = None,
     new_category_name: str | None = None,
-    auto_generate_faqs: bool = True,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_agent_or_admin),
 ):
@@ -161,7 +139,6 @@ async def upload(
         category_id=resolved_category_id,
         file_path=dest_path,
         original_filename=file.filename,
-        auto_generate_faqs=auto_generate_faqs,
     )
 
     background_tasks.add_task(process_file_source, source.id)
@@ -187,7 +164,6 @@ async def crawl(
         source_type="url",
         category_id=resolved_category_id,
         origin_url=payload.url.strip(),
-        auto_generate_faqs=payload.auto_generate_faqs,
     )
 
     background_tasks.add_task(process_url_source, source.id)
@@ -230,7 +206,6 @@ async def crawl_batch(
             source_type="url",
             category_id=resolved_category_id,
             origin_url=url,
-            auto_generate_faqs=payload.auto_generate_faqs,
         )
         source_ids.append(source.id)
         background_tasks.add_task(process_url_source, source.id)
@@ -321,28 +296,6 @@ async def get_one_source(source_id: int, db: AsyncSession = Depends(get_db)):
     if source is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Library source not found")
     return source
-
-
-@router.post("/sources/{source_id}/generate-faqs", status_code=status.HTTP_202_ACCEPTED)
-async def trigger_faq_generation(
-    source_id: int,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
-):
-    source = await get_source(db, source_id)
-    if source is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Library source not found")
-    if source.status != "indexed":
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Source must be indexed before generating FAQs")
-
-    background_tasks.add_task(regenerate_faqs_for_source, source.id)
-    return {"status": "queued"}
-
-
-@router.get("/sources/{source_id}/faqs", response_model=list[SourceFaqOut])
-async def get_source_faqs(source_id: int, db: AsyncSession = Depends(get_db)):
-    faqs = await list_faqs_by_source(db, source_id)
-    return [SourceFaqOut(id=f.id, question=f.question, answer=f.answer, status=f.status) for f in faqs]
 
 
 @router.delete("/sources/{source_id}", status_code=status.HTTP_204_NO_CONTENT)

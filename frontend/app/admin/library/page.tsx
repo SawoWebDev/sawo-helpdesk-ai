@@ -1,7 +1,6 @@
 "use client";
 
 import { Fragment, FormEvent, useEffect, useState } from "react";
-import Link from "next/link";
 import { apiDelete, apiGet, apiPost, getToken, ApiError } from "@/lib/api";
 import CategorySelect, { CategoryOption } from "@/components/admin/CategorySelect";
 import Pagination from "@/components/admin/Pagination";
@@ -16,9 +15,6 @@ interface LibrarySource {
   error_message: string | null;
   extracted_char_count: number | null;
   chunk_count: number;
-  auto_generate_faqs: boolean;
-  faq_generation_status: string | null;
-  generated_faq_count: number;
   created_at: string;
   processed_at: string | null;
 }
@@ -31,7 +27,6 @@ interface LibraryBatchSummary {
   pending_count: number;
   category_id: number | null;
   created_at: string;
-  generated_faq_count: number;
   origin_label: string;
 }
 
@@ -82,13 +77,11 @@ function StatusBadge({ status }: { status: string }) {
 function SourceRow({
   source: s,
   categoryName,
-  onGenerateFaqs,
   onDelete,
   indent,
 }: {
   source: LibrarySource;
   categoryName: (id: number | null) => string;
-  onGenerateFaqs: (source: LibrarySource) => void;
   onDelete: (source: LibrarySource) => void;
   indent: boolean;
 }) {
@@ -108,27 +101,7 @@ function SourceRow({
           </p>
         )}
       </td>
-      <td className="px-4 py-2">
-        {s.faq_generation_status === "processing" ? (
-          <span className="text-slate-500">Generating...</span>
-        ) : s.generated_faq_count > 0 ? (
-          <Link href={`/admin/library/sources/${s.id}/faqs`} className="text-blue-600 hover:underline">
-            Generated FAQs ({s.generated_faq_count})
-          </Link>
-        ) : (
-          <span className="text-slate-500">0</span>
-        )}
-      </td>
       <td className="px-4 py-2 text-right">
-        {s.generated_faq_count === 0 && (
-          <button
-            onClick={() => onGenerateFaqs(s)}
-            disabled={s.status !== "indexed"}
-            className="mr-3 text-blue-600 disabled:cursor-not-allowed disabled:text-slate-300"
-          >
-            Generate FAQs
-          </button>
-        )}
         <button onClick={() => onDelete(s)} className="text-red-600">
           Delete
         </button>
@@ -166,7 +139,6 @@ export default function LibraryPage() {
 
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [newCategoryName, setNewCategoryName] = useState("");
-  const [autoGenerateFaqs, setAutoGenerateFaqs] = useState(true);
 
   const [file, setFile] = useState<File | null>(null);
   const [crawlUrl, setCrawlUrl] = useState("");
@@ -263,7 +235,7 @@ export default function LibraryPage() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const params = new URLSearchParams({ auto_generate_faqs: String(autoGenerateFaqs) });
+      const params = new URLSearchParams();
       if (newCategoryName.trim()) params.set("new_category_name", newCategoryName.trim());
       else if (categoryId !== null) params.set("category_id", String(categoryId));
 
@@ -300,7 +272,6 @@ export default function LibraryPage() {
         url: crawlUrl.trim(),
         category_id: newCategoryName.trim() ? null : categoryId,
         new_category_name: newCategoryName.trim() || null,
-        auto_generate_faqs: autoGenerateFaqs,
       });
       setMessage(`Queued crawl for ${crawlUrl.trim()}`);
       setCrawlUrl("");
@@ -359,7 +330,6 @@ export default function LibraryPage() {
         urls,
         category_id: newCategoryName.trim() ? null : categoryId,
         new_category_name: newCategoryName.trim() || null,
-        auto_generate_faqs: autoGenerateFaqs,
       });
       setMessage(`Queued ${data.queued} page(s) for crawling.`);
       setDiscoveredUrls(null);
@@ -375,19 +345,8 @@ export default function LibraryPage() {
     }
   }
 
-  async function handleGenerateFaqs(source: LibrarySource) {
-    setError(null);
-    try {
-      await apiPost(`/api/library/sources/${source.id}/generate-faqs`, {});
-      setMessage(`Re-running FAQ generation for "${source.original_filename ?? source.origin_url}".`);
-      await loadSources();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to trigger FAQ generation");
-    }
-  }
-
   async function handleDelete(source: LibrarySource) {
-    if (!confirm("Delete this Library source and its indexed content? Generated FAQs are kept.")) return;
+    if (!confirm("Delete this Library source and its indexed content?")) return;
     await apiDelete(`/api/library/sources/${source.id}`);
     if (expandedJobId !== null) await loadJobSources(expandedJobId);
     await loadSources();
@@ -395,9 +354,7 @@ export default function LibraryPage() {
 
   async function handleDeleteBatch(batch: LibraryBatchSummary) {
     if (
-      !confirm(
-        `Delete all ${batch.source_count} pages from this crawl (${batch.origin_label}) and their indexed content? Generated FAQs are kept.`
-      )
+      !confirm(`Delete all ${batch.source_count} pages from this crawl (${batch.origin_label}) and their indexed content?`)
     )
       return;
     await apiDelete(`/api/library/jobs/${batch.job_id}`);
@@ -482,14 +439,6 @@ export default function LibraryPage() {
               className="rounded border border-slate-300 px-3 py-2 text-sm"
             />
           </div>
-          <label className="flex items-center gap-2 pb-2 text-sm text-slate-700">
-            <input
-              type="checkbox"
-              checked={autoGenerateFaqs}
-              onChange={(e) => setAutoGenerateFaqs(e.target.checked)}
-            />
-            Auto-generate FAQs
-          </label>
         </div>
 
         {activeTab === "file" ? (
@@ -713,7 +662,6 @@ export default function LibraryPage() {
               <th className="px-4 py-2">Chunks</th>
               <th className="px-4 py-2">Added</th>
               <th className="px-4 py-2">Status</th>
-              <th className="px-4 py-2">FAQs</th>
               <th className="px-4 py-2"></th>
             </tr>
           </thead>
@@ -726,7 +674,6 @@ export default function LibraryPage() {
                     key={`source-${s.id}`}
                     source={s}
                     categoryName={categoryName}
-                    onGenerateFaqs={handleGenerateFaqs}
                     onDelete={handleDelete}
                     indent={false}
                   />
@@ -761,19 +708,6 @@ export default function LibraryPage() {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-2">
-                        {b.generated_faq_count > 0 ? (
-                          <Link
-                            href={`/admin/library/jobs/${b.job_id}/faqs`}
-                            onClick={(e) => e.stopPropagation()}
-                            className="text-blue-600 hover:underline"
-                          >
-                            Generated FAQs ({b.generated_faq_count})
-                          </Link>
-                        ) : (
-                          <span className="text-slate-500">0</span>
-                        )}
-                      </td>
                       <td className="px-4 py-2 text-right">
                         <button
                           onClick={(e) => {
@@ -788,7 +722,7 @@ export default function LibraryPage() {
                     </tr>
                     {isExpanded && (
                       <tr className="border-t border-slate-100 bg-slate-50">
-                        <td colSpan={7} className="p-0">
+                        <td colSpan={6} className="p-0">
                           {jobSourcesLoading && (
                             <p className="px-8 py-3 text-xs text-slate-400">Loading pages...</p>
                           )}
@@ -800,7 +734,6 @@ export default function LibraryPage() {
                                     key={`job-source-${s.id}`}
                                     source={s}
                                     categoryName={categoryName}
-                                    onGenerateFaqs={handleGenerateFaqs}
                                     onDelete={handleDelete}
                                     indent
                                   />
@@ -818,7 +751,7 @@ export default function LibraryPage() {
             })}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={6} className="px-4 py-6 text-center text-slate-400">
                   No Library sources yet. Upload a document or crawl a URL above.
                 </td>
               </tr>

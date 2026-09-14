@@ -27,7 +27,6 @@ async def create_source(
     file_path: str | None = None,
     original_filename: str | None = None,
     crawl_depth: int | None = None,
-    auto_generate_faqs: bool = True,
 ) -> HarvestSource:
     source = HarvestSource(
         job_id=job_id,
@@ -37,7 +36,6 @@ async def create_source(
         file_path=file_path,
         original_filename=original_filename,
         crawl_depth=crawl_depth,
-        auto_generate_faqs=auto_generate_faqs,
         status="pending",
     )
     db.add(source)
@@ -168,7 +166,6 @@ async def list_sources_grouped(
                     "pending_count": statuses.count("pending") + statuses.count("processing"),
                     "category_id": sources[0].category_id if sources else None,
                     "created_at": group["created_at"],
-                    "generated_faq_count": sum(s.generated_faq_count for s in sources),
                     "origin_label": _common_origin_label(sources),
                 }
             )
