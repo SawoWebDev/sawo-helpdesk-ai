@@ -132,6 +132,13 @@ with new queries. Use the **Re-index All FAQs** button on the Settings page, or 
 POST /api/admin/reindex
 ```
 
+A migration that changes the vector column's dimension (e.g. switching embedding
+providers/models) nulls out existing embeddings, since vectors of different
+dimensions can't be reinterpreted. The backend's startup script
+(`entrypoint.sh`) runs `python -m app.reindex_stale` right after `alembic
+upgrade head`, which automatically re-embeds anything left null — no manual
+reindex needed after a routine deploy.
+
 ## Excel Import
 
 FAQ entries can be bulk-imported via `.xlsx` with a fixed column structure:

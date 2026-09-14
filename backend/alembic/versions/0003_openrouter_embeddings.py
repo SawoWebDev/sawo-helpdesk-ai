@@ -21,9 +21,9 @@ NEW_DIM = 1536
 
 def upgrade() -> None:
     # Existing vectors were produced by Ollama's nomic-embed-text (768 dims) and
-    # cannot be reinterpreted at the new width, so they're dropped here. Callers
-    # must run POST /api/admin/reindex afterwards to re-embed FAQ and vault
-    # entries via OpenRouter.
+    # cannot be reinterpreted at the new width, so they're dropped here.
+    # entrypoint.sh runs `python -m app.reindex_stale` right after migrating,
+    # which re-embeds any null vectors via OpenRouter automatically.
     op.execute("DROP INDEX IF EXISTS ix_faq_entries_embedding_hnsw")
     op.execute("UPDATE faq_entries SET embedding = NULL")
     op.alter_column(
