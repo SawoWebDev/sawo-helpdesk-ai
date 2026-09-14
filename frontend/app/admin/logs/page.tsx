@@ -62,7 +62,7 @@ export default function LogsPage() {
   }
 
   async function handleSaveAsFaq(log: ChatLog) {
-    if (!confirm("Save this answer as a new FAQ entry (draft, for review)?")) return;
+    if (!confirm("Save this answer as a new published FAQ entry?")) return;
     setSavingLogId(log.id);
     setError(null);
     try {

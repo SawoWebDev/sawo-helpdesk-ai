@@ -71,8 +71,8 @@ async def save_log_as_faq(log_id: int, db: AsyncSession = Depends(get_db)):
     fallback/off-topic reply always logs empty match lists, so this doubles
     as the "was this a real answer" check. Reference URLs are reconstructed
     from the matched Vault/FAQ entries rather than stored on ChatLog itself,
-    since ChatLog only keeps the ids. Saved as draft so an admin reviews it
-    before it goes live as a primary-tier answer."""
+    since ChatLog only keeps the ids. Published immediately, matching the
+    default for a manually-created FAQ."""
     log = await db.get(ChatLog, log_id)
     if log is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat log not found")
@@ -105,7 +105,6 @@ async def save_log_as_faq(log_id: int, db: AsyncSession = Depends(get_db)):
         reference_urls=reference_urls,
         source="chat_log",
         source_label=f"Chat log #{log.id}",
-        status="draft",
     )
     try:
         await embed_entry(db, entry)
