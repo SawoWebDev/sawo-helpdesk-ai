@@ -84,8 +84,8 @@ export default function JobFaqsPage() {
     }
   }
 
-  async function toggleFaqStatus(faq: JobFaq) {
-    const nextStatus = faq.status === "published" ? "draft" : "published";
+  async function setFaqStatus(faq: JobFaq, nextStatus: "draft" | "published") {
+    if (nextStatus === faq.status) return;
     setSavingFaqId(faq.id);
     setError(null);
     try {
@@ -178,25 +178,22 @@ export default function JobFaqsPage() {
                         <>
                           <div className="mb-1 flex items-start justify-between gap-2">
                             <p className="text-sm font-medium text-slate-800">{faq.question}</p>
-                            <span
-                              className={`shrink-0 rounded px-2 py-0.5 text-xs font-medium ${
+                            <select
+                              value={faq.status}
+                              onChange={(e) => setFaqStatus(faq, e.target.value as "draft" | "published")}
+                              disabled={isSaving}
+                              className={`shrink-0 rounded border-0 px-2 py-0.5 text-xs font-medium disabled:opacity-50 ${
                                 faq.status === "published" ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"
                               }`}
                             >
-                              {faq.status}
-                            </span>
+                              <option value="draft">draft</option>
+                              <option value="published">published</option>
+                            </select>
                           </div>
                           <p className="text-sm text-slate-600">{faq.answer}</p>
                           <div className="mt-2 flex gap-3 text-xs">
                             <button onClick={() => startEditingFaq(faq)} className="text-blue-600 hover:underline">
                               Edit
-                            </button>
-                            <button
-                              onClick={() => toggleFaqStatus(faq)}
-                              disabled={isSaving}
-                              className="text-blue-600 hover:underline disabled:opacity-50"
-                            >
-                              {isSaving ? "Saving..." : faq.status === "published" ? "Unpublish" : "Publish"}
                             </button>
                           </div>
                         </>
