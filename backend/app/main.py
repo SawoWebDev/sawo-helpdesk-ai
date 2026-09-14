@@ -12,6 +12,7 @@ from app.routers import (
     chat,
     faqs,
     imports,
+    library,
     logs,
     settings as settings_router,
     unanswered,
@@ -48,6 +49,7 @@ app.include_router(settings_router.router)
 app.include_router(users.router)
 app.include_router(admin.router)
 app.include_router(vault.router)
+app.include_router(library.router)
 
 
 @app.get("/api/health")

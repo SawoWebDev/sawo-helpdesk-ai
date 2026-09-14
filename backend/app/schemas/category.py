@@ -25,3 +25,5 @@ class CategoryOut(CategoryBase):
     updated_at: datetime
     faq_count: int = 0
     child_count: int = 0
+    vault_count: int = 0
+    library_source_count: int = 0

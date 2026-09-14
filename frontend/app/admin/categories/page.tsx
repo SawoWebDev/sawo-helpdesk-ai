@@ -7,6 +7,8 @@ import CategorySelect, { CategoryOption } from "@/components/admin/CategorySelec
 interface Category extends CategoryOption {
   faq_count: number;
   child_count: number;
+  vault_count: number;
+  library_source_count: number;
 }
 
 export default function CategoriesPage() {
@@ -46,7 +48,7 @@ export default function CategoriesPage() {
       await load();
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        if (confirm(`"${cat.name}" has child categories or FAQs attached. Delete anyway?`)) {
+        if (confirm(`"${cat.name}" has child categories, FAQs, or Library documents attached. Delete anyway?`)) {
           await handleDelete(cat, true);
         }
       } else {
@@ -94,6 +96,7 @@ export default function CategoriesPage() {
               <th className="px-4 py-2">Name</th>
               <th className="px-4 py-2">Parent</th>
               <th className="px-4 py-2">FAQs</th>
+              <th className="px-4 py-2">Library</th>
               <th className="px-4 py-2">Children</th>
               <th className="px-4 py-2"></th>
             </tr>
@@ -116,6 +119,7 @@ export default function CategoriesPage() {
                   </td>
                   <td className="px-4 py-2 text-slate-500">{parent?.name ?? "—"}</td>
                   <td className="px-4 py-2">{cat.faq_count}</td>
+                  <td className="px-4 py-2">{cat.vault_count + cat.library_source_count}</td>
                   <td className="px-4 py-2">{cat.child_count}</td>
                   <td className="px-4 py-2 text-right">
                     {editingId === cat.id ? (

@@ -139,7 +139,11 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
     faq_ids = [entry_id for entry_id, _ in faq_hits]
     faq_by_id = {
         entry.id: entry
-        for entry in (await db.execute(select(FAQEntry).where(FAQEntry.id.in_(faq_ids)))).scalars()
+        for entry in (
+            await db.execute(
+                select(FAQEntry).where(FAQEntry.id.in_(faq_ids), FAQEntry.status == "published")
+            )
+        ).scalars()
     } if faq_ids else {}
 
     vault_ids = [entry_id for entry_id, _ in vault_hits]

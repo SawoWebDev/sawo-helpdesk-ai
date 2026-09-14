@@ -21,6 +21,7 @@ class FAQUpdate(BaseModel):
     category_id: int | None = None
     image_urls: list[str] | None = None
     reference_urls: list[str] | None = None
+    status: str | None = None
 
 
 class FAQOut(FAQBase):
@@ -28,5 +29,7 @@ class FAQOut(FAQBase):
 
     id: int
     source: str
+    source_label: str | None = None
+    status: str
     created_at: datetime
     updated_at: datetime

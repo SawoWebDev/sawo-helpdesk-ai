@@ -71,11 +71,18 @@ async def delete(category_id: int, force: bool = False, db: AsyncSession = Depen
 
     categories = await list_categories(db)
     info = next((c for c in categories if c["id"] == category_id), None)
-    if info and (info["faq_count"] > 0 or info["child_count"] > 0) and not force:
+    has_dependents = info and (
+        info["faq_count"] > 0
+        or info["child_count"] > 0
+        or info["vault_count"] > 0
+        or info["library_source_count"] > 0
+    )
+    if has_dependents and not force:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Category has attached FAQs or child categories. Pass force=true to delete anyway "
-            "(children are reassigned to no parent, FAQs are reassigned to no category).",
+            detail="Category has attached FAQs, Library documents/sources, or child categories. "
+            "Reassign or remove them first, or pass force=true to delete anyway (all are reassigned "
+            "to no category/parent).",
         )
 
     await delete_category(db, category)

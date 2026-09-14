@@ -16,6 +16,7 @@ async def list_faqs(
     page_size: int,
     category_id: int | None = None,
     search: str | None = None,
+    status_filter: str | None = None,
 ) -> tuple[list[FAQEntry], int]:
     stmt = select(FAQEntry)
     count_stmt = select(func.count(FAQEntry.id))
@@ -23,6 +24,10 @@ async def list_faqs(
     if category_id is not None:
         stmt = stmt.where(FAQEntry.category_id == category_id)
         count_stmt = count_stmt.where(FAQEntry.category_id == category_id)
+
+    if status_filter is not None:
+        stmt = stmt.where(FAQEntry.status == status_filter)
+        count_stmt = count_stmt.where(FAQEntry.status == status_filter)
 
     if search:
         like = f"%{search}%"
@@ -65,6 +70,9 @@ async def create_faq(
     image_urls: list[str],
     reference_urls: list[str],
     source: str = "manual",
+    source_label: str | None = None,
+    source_id: int | None = None,
+    status: str = "published",
 ) -> FAQEntry:
     entry = FAQEntry(
         question=question,
@@ -73,11 +81,19 @@ async def create_faq(
         image_urls=image_urls,
         reference_urls=reference_urls,
         source=source,
+        source_label=source_label,
+        source_id=source_id,
+        status=status,
     )
     db.add(entry)
     await db.commit()
     await db.refresh(entry)
     return entry
+
+
+async def list_faqs_by_source(db: AsyncSession, source_id: int) -> list[FAQEntry]:
+    result = await db.execute(select(FAQEntry).where(FAQEntry.source_id == source_id))
+    return list(result.scalars().all())
 
 
 async def delete_faq(db: AsyncSession, entry: FAQEntry) -> None:

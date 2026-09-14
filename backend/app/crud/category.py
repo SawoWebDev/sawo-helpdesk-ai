@@ -3,6 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.category import Category
 from app.models.faq import FAQEntry
+from app.models.harvest_source import HarvestSource
+from app.models.vault_entry import VaultEntry
 
 
 async def get_category(db: AsyncSession, category_id: int) -> Category | None:
@@ -34,6 +36,16 @@ async def list_categories(db: AsyncSession) -> list[dict]:
     )
     child_counts = dict(child_counts_result.all())
 
+    vault_counts_result = await db.execute(
+        select(VaultEntry.category_id, func.count(VaultEntry.id)).group_by(VaultEntry.category_id)
+    )
+    vault_counts = dict(vault_counts_result.all())
+
+    library_source_counts_result = await db.execute(
+        select(HarvestSource.category_id, func.count(HarvestSource.id)).group_by(HarvestSource.category_id)
+    )
+    library_source_counts = dict(library_source_counts_result.all())
+
     out = []
     for c in categories:
         out.append(
@@ -45,6 +57,8 @@ async def list_categories(db: AsyncSession) -> list[dict]:
                 "updated_at": c.updated_at,
                 "faq_count": faq_counts.get(c.id, 0),
                 "child_count": child_counts.get(c.id, 0),
+                "vault_count": vault_counts.get(c.id, 0),
+                "library_source_count": library_source_counts.get(c.id, 0),
             }
         )
     return out

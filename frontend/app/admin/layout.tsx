@@ -8,6 +8,7 @@ import { useCurrentUser } from "@/lib/useCurrentUser";
 
 const NAV_ITEMS = [
   { href: "/admin/dashboard", label: "Dashboard", adminOnly: false },
+  { href: "/admin/library", label: "Library", adminOnly: false },
   { href: "/admin/faqs", label: "FAQs", adminOnly: false },
   { href: "/admin/categories", label: "Categories", adminOnly: false },
   { href: "/admin/unanswered", label: "Unanswered", adminOnly: false },

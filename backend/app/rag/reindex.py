@@ -2,7 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.factory import get_embedding_engine
-from app.db.vec_store import FAQ_VEC_TABLE, upsert_embedding
+from app.db.vec_store import FAQ_VEC_TABLE, delete_embedding, upsert_embedding
 from app.models.faq import FAQEntry
 
 
@@ -12,7 +12,7 @@ def _embedding_text(entry: FAQEntry) -> str:
 
 async def reindex_all(db: AsyncSession) -> int:
     engine = await get_embedding_engine(db)
-    result = await db.execute(select(FAQEntry))
+    result = await db.execute(select(FAQEntry).where(FAQEntry.status == "published"))
     entries = list(result.scalars().all())
     if not entries:
         return 0
@@ -29,6 +29,13 @@ async def reindex_all(db: AsyncSession) -> int:
 
 
 async def embed_entry(db: AsyncSession, entry: FAQEntry) -> None:
+    """No-op (and removes any existing vec row) while the entry is a Draft —
+    drafts must never be retrievable by RAG until an admin publishes them."""
+    if entry.status != "published":
+        if entry.has_embedding:
+            await delete_embedding(db, FAQ_VEC_TABLE, entry.id)
+            entry.has_embedding = False
+        return
     engine = await get_embedding_engine(db)
     [vector] = await engine.embed([_embedding_text(entry)])
     await upsert_embedding(db, FAQ_VEC_TABLE, entry.id, vector)
