@@ -9,6 +9,7 @@ interface ChatLog {
   question_text: string;
   answer_text: string;
   matched_faq_ids: number[];
+  matched_vault_ids: number[];
   confidence_score: number | null;
   engine_used: string;
   created_at: string;
@@ -122,6 +123,7 @@ export default function LogsPage() {
               <th className="px-4 py-2">Question</th>
               <th className="px-4 py-2">Answer</th>
               <th className="px-4 py-2">Confidence</th>
+              <th className="px-4 py-2">Sources</th>
               <th className="px-4 py-2">Engine</th>
               <th className="px-4 py-2">Time</th>
             </tr>
@@ -134,13 +136,23 @@ export default function LogsPage() {
                 <td className="px-4 py-2">
                   {log.confidence_score !== null ? log.confidence_score.toFixed(2) : "—"}
                 </td>
+                <td className="px-4 py-2 text-slate-500">
+                  {log.matched_faq_ids.length === 0 && log.matched_vault_ids.length === 0
+                    ? "—"
+                    : [
+                        log.matched_faq_ids.length > 0 ? `${log.matched_faq_ids.length} FAQ` : null,
+                        log.matched_vault_ids.length > 0 ? `${log.matched_vault_ids.length} Vault` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(", ")}
+                </td>
                 <td className="px-4 py-2">{log.engine_used}</td>
                 <td className="px-4 py-2 text-slate-500">{new Date(log.created_at).toLocaleString()}</td>
               </tr>
             ))}
             {logs.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={6} className="px-4 py-6 text-center text-slate-400">
                   No chat logs found for this filter.
                 </td>
               </tr>

@@ -12,6 +12,7 @@ DEFAULTS: dict[str, str] = {
     keys.OLLAMA_BASE_URL: env_settings.ollama_base_url,
     keys.OLLAMA_GENERATION_MODEL: env_settings.ollama_generation_model,
     keys.OLLAMA_EMBEDDING_MODEL: env_settings.ollama_embedding_model,
+    keys.OLLAMA_VISION_MODEL: env_settings.ollama_vision_model,
     keys.FALLBACK_MESSAGE: env_settings.default_fallback_message,
     keys.CONFIDENCE_THRESHOLD: str(env_settings.default_confidence_threshold),
     keys.TOP_K: str(env_settings.default_top_k),

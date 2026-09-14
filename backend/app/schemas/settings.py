@@ -8,6 +8,7 @@ class SettingsOut(BaseModel):
     ollama_base_url: str
     ollama_generation_model: str
     ollama_embedding_model: str
+    ollama_vision_model: str
     fallback_message: str
     confidence_threshold: float
     top_k: int
@@ -22,6 +23,7 @@ class SettingsUpdate(BaseModel):
     ollama_base_url: str | None = None
     ollama_generation_model: str | None = None
     ollama_embedding_model: str | None = None
+    ollama_vision_model: str | None = None
     fallback_message: str | None = None
     confidence_threshold: float | None = None
     top_k: int | None = None

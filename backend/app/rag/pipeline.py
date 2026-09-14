@@ -11,6 +11,7 @@ from app.crud.settings import get_all_settings
 from app.models.chat_log import ChatLog
 from app.models.faq import FAQEntry
 from app.models.unanswered import UnansweredQuestion
+from app.models.vault_entry import VaultEntry
 from app.rag.filler import is_filler
 
 REFUSAL_SENTINEL = "NOT_FOUND"
@@ -51,6 +52,7 @@ class RagResult:
     is_fallback: bool
     confidence_score: float | None
     matched_faq_ids: list[int]
+    matched_vault_ids: list[int] = field(default_factory=list)
     image_urls: list[str] = field(default_factory=list)
     reference_urls: list[str] = field(default_factory=list)
     engine_used: str = "none"
@@ -75,22 +77,40 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
     except AIEngineError:
         return await _fallback(db, question, fallback_message, None, engine_used="none")
 
-    distance_expr = FAQEntry.embedding.cosine_distance(query_vector)
-    stmt = (
-        select(FAQEntry, distance_expr.label("distance"))
+    faq_distance = FAQEntry.embedding.cosine_distance(query_vector)
+    faq_stmt = (
+        select(FAQEntry, faq_distance.label("distance"))
         .where(FAQEntry.embedding.is_not(None))
-        .order_by(distance_expr)
+        .order_by(faq_distance)
         .limit(top_k)
     )
-    result = await db.execute(stmt)
-    rows = result.all()
+    faq_rows = (await db.execute(faq_stmt)).all()
+
+    vault_distance = VaultEntry.embedding.cosine_distance(query_vector)
+    vault_stmt = (
+        select(VaultEntry, vault_distance.label("distance"))
+        .where(VaultEntry.embedding.is_not(None), VaultEntry.memory_enabled.is_(True))
+        .order_by(vault_distance)
+        .limit(top_k)
+    )
+    vault_rows = (await db.execute(vault_stmt)).all()
+
+    # Merge FAQ + Vault candidates by similarity (lower distance = closer) and
+    # take the combined top_k, so a strong vault match can outrank a weak FAQ
+    # match and vice versa. When vault_rows is empty, this is exactly today's
+    # FAQ-only result (already ordered by distance, same limit applied).
+    rows = sorted(
+        [(("faq", entry), distance) for entry, distance in faq_rows]
+        + [(("vault", entry), distance) for entry, distance in vault_rows],
+        key=lambda pair: pair[1],
+    )[:top_k]
 
     if not rows:
         if not await _is_on_topic(engine, question):
             return await _off_topic(db, question, off_topic_message, None)
         return await _fallback(db, question, fallback_message, None, engine_used="none")
 
-    best_entry, best_distance = rows[0]
+    (_best_kind, _best_entry), best_distance = rows[0]
     best_similarity = 1.0 - float(best_distance)
 
     if best_similarity < threshold:
@@ -105,14 +125,21 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
         )
 
     context_parts = []
-    matched_ids = []
+    matched_faq_ids: list[int] = []
+    matched_vault_ids: list[int] = []
     image_urls: list[str] = []
     reference_urls: list[str] = []
-    for entry, _distance in rows:
-        context_parts.append(f"Q: {entry.question}\nA: {entry.answer}")
-        matched_ids.append(entry.id)
-        image_urls.extend(entry.image_urls or [])
-        reference_urls.extend(entry.reference_urls or [])
+    for (kind, entry), _distance in rows:
+        if kind == "faq":
+            context_parts.append(f"Q: {entry.question}\nA: {entry.answer}")
+            matched_faq_ids.append(entry.id)
+            image_urls.extend(entry.image_urls or [])
+            reference_urls.extend(entry.reference_urls or [])
+        else:
+            context_parts.append(f"Topic: {entry.title}\n{entry.content}")
+            matched_vault_ids.append(entry.id)
+            if entry.source_url:
+                reference_urls.append(entry.source_url)
     context = "\n\n".join(context_parts)
 
     try:
@@ -130,7 +157,8 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
     chat_log = ChatLog(
         question_text=question,
         answer_text=generated,
-        matched_faq_ids=matched_ids,
+        matched_faq_ids=matched_faq_ids,
+        matched_vault_ids=matched_vault_ids,
         confidence_score=best_similarity,
         engine_used=engine.name,
     )
@@ -141,7 +169,8 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
         answer=generated,
         is_fallback=False,
         confidence_score=best_similarity,
-        matched_faq_ids=matched_ids,
+        matched_faq_ids=matched_faq_ids,
+        matched_vault_ids=matched_vault_ids,
         image_urls=list(dict.fromkeys(image_urls)),
         reference_urls=list(dict.fromkeys(reference_urls)),
         engine_used=engine.name,

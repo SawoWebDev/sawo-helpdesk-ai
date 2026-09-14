@@ -90,6 +90,29 @@ async def get_or_create_other_category(db: AsyncSession) -> Category:
     return category
 
 
+async def build_category_path_map(db: AsyncSession) -> dict[int, str]:
+    """Map each category id to its full 'Parent > Child' path string, for export."""
+    result = await db.execute(select(Category))
+    categories = {c.id: c for c in result.scalars().all()}
+
+    paths: dict[int, str] = {}
+
+    def resolve(category_id: int) -> str:
+        if category_id in paths:
+            return paths[category_id]
+        category = categories[category_id]
+        if category.parent_id is None:
+            path = category.name
+        else:
+            path = f"{resolve(category.parent_id)} > {category.name}"
+        paths[category_id] = path
+        return path
+
+    for cid in categories:
+        resolve(cid)
+    return paths
+
+
 async def get_or_create_category_path(db: AsyncSession, path: str) -> Category:
     """Resolve a 'Parent > Child' style path, creating any missing segments."""
     parts = [p.strip() for p in path.split(">") if p.strip()]

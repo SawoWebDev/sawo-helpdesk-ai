@@ -17,6 +17,7 @@ from app.routers import (
     unanswered,
     uploads,
     users,
+    vault,
 )
 
 app = FastAPI(title="Helpdesk RAG API")
@@ -46,6 +47,7 @@ app.include_router(logs.router)
 app.include_router(settings_router.router)
 app.include_router(users.router)
 app.include_router(admin.router)
+app.include_router(vault.router)
 
 
 @app.get("/api/health")

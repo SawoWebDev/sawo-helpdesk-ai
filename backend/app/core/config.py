@@ -22,10 +22,16 @@ class Settings(BaseSettings):
     max_upload_size_bytes: int = 5 * 1024 * 1024
     allowed_image_extensions: tuple[str, ...] = (".png", ".jpg", ".jpeg", ".gif", ".webp")
 
+    # Harvester uploads (separate limits from FAQ image uploads above)
+    max_harvest_upload_size_bytes: int = 25 * 1024 * 1024
+    allowed_pdf_extensions: tuple[str, ...] = (".pdf",)
+    max_vault_entry_chars: int = 50_000
+
     # AI engine defaults (used only for first-boot Settings seed; live config is in DB)
     ollama_base_url: str = "http://localhost:11434"
     ollama_embedding_model: str = "nomic-embed-text"
     ollama_generation_model: str = "llama3"
+    ollama_vision_model: str = "llava"
     openrouter_api_key: str = ""
     openrouter_model: str = "meta-llama/llama-3-70b-instruct"
 

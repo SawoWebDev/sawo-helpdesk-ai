@@ -20,6 +20,7 @@ async def chat(payload: ChatRequest, db: AsyncSession = Depends(get_db)):
         is_fallback=result.is_fallback,
         confidence_score=result.confidence_score,
         matched_faq_ids=result.matched_faq_ids,
+        matched_vault_ids=result.matched_vault_ids,
         image_urls=result.image_urls,
         reference_urls=result.reference_urls,
     )

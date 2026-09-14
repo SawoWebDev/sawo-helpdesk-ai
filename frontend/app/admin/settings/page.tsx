@@ -10,6 +10,7 @@ interface Settings {
   ollama_base_url: string;
   ollama_generation_model: string;
   ollama_embedding_model: string;
+  ollama_vision_model: string;
   fallback_message: string;
   confidence_threshold: number;
   top_k: number;
@@ -44,6 +45,7 @@ export default function SettingsPage() {
         ollama_base_url: settings.ollama_base_url,
         ollama_generation_model: settings.ollama_generation_model,
         ollama_embedding_model: settings.ollama_embedding_model,
+        ollama_vision_model: settings.ollama_vision_model,
         fallback_message: settings.fallback_message,
         confidence_threshold: settings.confidence_threshold,
         top_k: settings.top_k,
@@ -141,6 +143,18 @@ export default function SettingsPage() {
           />
           <p className="text-xs text-slate-400">
             Changing this requires re-indexing all FAQ entries below.
+          </p>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-sm font-medium text-slate-700">Ollama Vision Model (OCR)</label>
+          <input
+            value={settings.ollama_vision_model}
+            onChange={(e) => setSettings({ ...settings, ollama_vision_model: e.target.value })}
+            className="rounded border border-slate-300 px-3 py-2 text-sm"
+          />
+          <p className="text-xs text-slate-400">
+            Used only for extracting text from uploaded images (Knowledge Harvester). Always
+            runs via Ollama regardless of the active AI engine above.
           </p>
         </div>
 

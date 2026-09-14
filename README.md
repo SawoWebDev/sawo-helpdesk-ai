@@ -224,6 +224,9 @@ deploy/     Compose file and Postgres init scripts
 - Admin: http://localhost:3000/admin/login (admin / changeme123)
 - Backend: http://localhost:8001
 
+## To start not rebuild
+podman-compose -f deploy/podman-compose.yml --env-file .env up -d
+
 ## Confirmed — still only bound to 127.0.0.1, matching exactly what I predicted. The netsh/firewall commands haven't been run yet (that requires an elevated PowerShell, which I can't run for you). Let's check if you're on an elevated shell now so I can try running them for you this time.
 
 Press Win, type PowerShell, right-click Windows PowerShell, choose Run as administrator

@@ -87,6 +87,19 @@ export default function FAQListPage() {
     }
   }
 
+  async function handleExport() {
+    setDownloadError(null);
+    try {
+      const params = new URLSearchParams();
+      if (search) params.set("search", search);
+      if (categoryId !== null) params.set("category_id", String(categoryId));
+      const query = params.toString();
+      await downloadFile(`/api/faqs/export${query ? `?${query}` : ""}`, "faq_export.xlsx");
+    } catch (err) {
+      setDownloadError(err instanceof ApiError ? err.message : "Failed to export FAQs");
+    }
+  }
+
   function categoryName(id: number | null) {
     if (id === null) return "—";
     return categories.find((c) => c.id === id)?.name ?? "—";
@@ -103,6 +116,13 @@ export default function FAQListPage() {
             className="rounded border border-slate-300 px-3 py-2 text-sm"
           >
             Download Template
+          </button>
+          <button
+            type="button"
+            onClick={handleExport}
+            className="rounded border border-slate-300 px-3 py-2 text-sm"
+          >
+            Export Excel
           </button>
           <label className="cursor-pointer rounded border border-slate-300 px-3 py-2 text-sm">
             Import Excel

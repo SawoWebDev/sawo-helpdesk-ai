@@ -10,6 +10,7 @@ class ChatLogOut(BaseModel):
     question_text: str
     answer_text: str
     matched_faq_ids: list[int]
+    matched_vault_ids: list[int]
     confidence_score: float | None
     engine_used: str
     created_at: datetime
@@ -24,5 +25,6 @@ class ChatResponse(BaseModel):
     is_fallback: bool
     confidence_score: float | None
     matched_faq_ids: list[int]
+    matched_vault_ids: list[int]
     image_urls: list[str]
     reference_urls: list[str]

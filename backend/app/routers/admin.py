@@ -5,6 +5,7 @@ from app.ai.base import AIEngineError
 from app.core.deps import require_admin
 from app.db.session import get_db
 from app.rag.reindex import reindex_all
+from app.rag.vault_reindex import reindex_all_vault
 
 router = APIRouter(prefix="/api/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
@@ -12,7 +13,8 @@ router = APIRouter(prefix="/api/admin", tags=["admin"], dependencies=[Depends(re
 @router.post("/reindex")
 async def reindex(db: AsyncSession = Depends(get_db)):
     try:
-        count = await reindex_all(db)
+        faq_count = await reindex_all(db)
+        vault_count = await reindex_all_vault(db)
     except AIEngineError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
-    return {"reindexed": count}
+    return {"reindexed": faq_count, "reindexed_vault": vault_count}

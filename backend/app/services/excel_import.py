@@ -4,8 +4,8 @@ from dataclasses import dataclass, field
 from openpyxl import Workbook, load_workbook
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.crud.category import get_or_create_category_path
-from app.crud.faq import create_faq
+from app.crud.category import build_category_path_map, get_or_create_category_path
+from app.crud.faq import create_faq, list_faqs_all
 from app.rag.reindex import embed_entry
 
 TEMPLATE_HEADERS = ["Category", "Question", "Answer", "Image URL", "Reference URL"]
@@ -19,13 +19,45 @@ def generate_template() -> bytes:
     ws.append(TEMPLATE_HEADERS)
     ws.append(
         [
-            "General > Billing",
+            "Billing",
             "How do I update my payment method?",
             "Go to Account Settings > Billing and click 'Update Payment Method'.",
             "",
             "https://example.com/billing-help",
         ]
     )
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
+async def export_faqs(
+    db: AsyncSession,
+    category_id: int | None = None,
+    search: str | None = None,
+) -> bytes:
+    """Export FAQ entries (optionally filtered) using the same column layout as
+    the import template, so the file can be edited and re-imported."""
+    entries = await list_faqs_all(db, category_id=category_id, search=search)
+    category_paths = await build_category_path_map(db)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "FAQ Export"
+    ws.append(TEMPLATE_HEADERS)
+
+    for entry in entries:
+        category_path = category_paths.get(entry.category_id, "") if entry.category_id else ""
+        ws.append(
+            [
+                category_path,
+                entry.question,
+                entry.answer,
+                (entry.image_urls or [""])[0],
+                (entry.reference_urls or [""])[0],
+            ]
+        )
+
     buffer = io.BytesIO()
     wb.save(buffer)
     return buffer.getvalue()

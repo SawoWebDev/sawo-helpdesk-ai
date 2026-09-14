@@ -36,6 +36,26 @@ async def list_faqs(
     return list(result.scalars().all()), total
 
 
+async def list_faqs_all(
+    db: AsyncSession,
+    category_id: int | None = None,
+    search: str | None = None,
+) -> list[FAQEntry]:
+    """Unpaginated variant of list_faqs, for export."""
+    stmt = select(FAQEntry)
+
+    if category_id is not None:
+        stmt = stmt.where(FAQEntry.category_id == category_id)
+
+    if search:
+        like = f"%{search}%"
+        stmt = stmt.where(or_(FAQEntry.question.ilike(like), FAQEntry.answer.ilike(like)))
+
+    stmt = stmt.order_by(FAQEntry.updated_at.desc())
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
 async def create_faq(
     db: AsyncSession,
     question: str,
