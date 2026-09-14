@@ -97,3 +97,13 @@ class SourceFaqOut(BaseModel):
     question: str
     answer: str
     status: str
+
+
+class JobFaqOut(BaseModel):
+    id: int
+    question: str
+    answer: str
+    status: str
+    source_id: int
+    source_url: str | None
+    source_filename: str | None

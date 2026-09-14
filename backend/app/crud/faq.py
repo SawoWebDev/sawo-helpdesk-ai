@@ -96,6 +96,22 @@ async def list_faqs_by_source(db: AsyncSession, source_id: int) -> list[FAQEntry
     return list(result.scalars().all())
 
 
+async def list_faqs_by_job(db: AsyncSession, job_id: int) -> list[tuple[FAQEntry, int]]:
+    """Every FAQ generated from any source in a batch crawl job, joined
+    through HarvestSource.job_id since FAQEntry.source_id points at the
+    individual page, not the job. Returns (faq, source_id) pairs so the
+    caller can group by page without a second query per FAQ."""
+    from app.models.harvest_source import HarvestSource
+
+    result = await db.execute(
+        select(FAQEntry, HarvestSource.id)
+        .join(HarvestSource, FAQEntry.source_id == HarvestSource.id)
+        .where(HarvestSource.job_id == job_id)
+        .order_by(HarvestSource.origin_url, FAQEntry.id)
+    )
+    return [(faq, source_id) for faq, source_id in result.all()]
+
+
 async def delete_faq(db: AsyncSession, entry: FAQEntry) -> None:
     await delete_embedding(db, FAQ_VEC_TABLE, entry.id)
     await db.delete(entry)

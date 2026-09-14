@@ -107,20 +107,22 @@ function SourceRow({
           <span className="text-slate-500">Generating...</span>
         ) : s.generated_faq_count > 0 ? (
           <Link href={`/admin/library/sources/${s.id}/faqs`} className="text-blue-600 hover:underline">
-            {s.generated_faq_count}
+            Generated FAQs ({s.generated_faq_count})
           </Link>
         ) : (
           <span className="text-slate-500">0</span>
         )}
       </td>
       <td className="px-4 py-2 text-right">
-        <button
-          onClick={() => onGenerateFaqs(s)}
-          disabled={s.status !== "indexed"}
-          className="mr-3 text-blue-600 disabled:cursor-not-allowed disabled:text-slate-300"
-        >
-          {s.generated_faq_count > 0 ? "Regenerate FAQs" : "Generate FAQs"}
-        </button>
+        {s.generated_faq_count === 0 && (
+          <button
+            onClick={() => onGenerateFaqs(s)}
+            disabled={s.status !== "indexed"}
+            className="mr-3 text-blue-600 disabled:cursor-not-allowed disabled:text-slate-300"
+          >
+            Generate FAQs
+          </button>
+        )}
         <button onClick={() => onDelete(s)} className="text-red-600">
           Delete
         </button>
@@ -692,7 +694,19 @@ export default function LibraryPage() {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-2 text-slate-500">{b.generated_faq_count}</td>
+                      <td className="px-4 py-2">
+                        {b.generated_faq_count > 0 ? (
+                          <Link
+                            href={`/admin/library/jobs/${b.job_id}/faqs`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-blue-600 hover:underline"
+                          >
+                            Generated FAQs ({b.generated_faq_count})
+                          </Link>
+                        ) : (
+                          <span className="text-slate-500">0</span>
+                        )}
+                      </td>
                       <td className="px-4 py-2 text-right">
                         <button
                           onClick={(e) => {

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { apiGet, apiPut, ApiError } from "@/lib/api";
+import { apiGet, apiPost, apiPut, ApiError } from "@/lib/api";
 
 interface LibrarySource {
   id: number;
@@ -32,6 +32,8 @@ export default function SourceFaqsPage() {
   const [editQuestion, setEditQuestion] = useState("");
   const [editAnswer, setEditAnswer] = useState("");
   const [savingFaqId, setSavingFaqId] = useState<number | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -96,20 +98,47 @@ export default function SourceFaqsPage() {
     }
   }
 
+  async function handleRegenerate() {
+    if (!confirm("Re-run FAQ generation for this page? This adds newly generated FAQs alongside the existing ones.")) return;
+    setRegenerating(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await apiPost(`/api/library/sources/${sourceId}/generate-faqs`, {});
+      setMessage("Regenerating FAQs in the background — refresh in a moment to see new results.");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to trigger FAQ regeneration");
+    } finally {
+      setRegenerating(false);
+    }
+  }
+
   return (
     <div>
       <Link href="/admin/library" className="mb-4 inline-block text-sm text-blue-600 hover:underline">
         ← Back to Library
       </Link>
 
-      <h1 className="mb-1 text-xl font-semibold text-slate-800">Generated FAQs</h1>
-      {source && (
-        <p className="mb-6 max-w-2xl truncate text-sm text-slate-500" title={source.original_filename ?? source.origin_url ?? ""}>
-          {source.source_type === "file" ? source.original_filename : source.origin_url}
-        </p>
-      )}
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="mb-1 text-xl font-semibold text-slate-800">Generated FAQs</h1>
+          {source && (
+            <p className="max-w-2xl truncate text-sm text-slate-500" title={source.original_filename ?? source.origin_url ?? ""}>
+              {source.source_type === "file" ? source.original_filename : source.origin_url}
+            </p>
+          )}
+        </div>
+        <button
+          onClick={handleRegenerate}
+          disabled={regenerating}
+          className="shrink-0 rounded border border-slate-300 px-3 py-2 text-sm font-medium disabled:opacity-50"
+        >
+          {regenerating ? "Queuing..." : "Regenerate"}
+        </button>
+      </div>
 
       {error && <p className="mb-4 rounded bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
+      {message && <p className="mb-4 rounded bg-blue-50 px-3 py-2 text-sm text-blue-800">{message}</p>}
       {loading && <p className="text-sm text-slate-400">Loading...</p>}
       {!loading && faqs && faqs.length === 0 && (
         <p className="text-sm text-slate-400">No FAQs generated for this source yet.</p>

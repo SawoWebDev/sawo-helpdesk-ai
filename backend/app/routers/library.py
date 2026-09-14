@@ -9,7 +9,7 @@ from app.ai.factory import get_active_engine, get_embedding_engine
 from app.core.config import settings
 from app.core.deps import require_agent_or_admin
 from app.crud.category import create_category, get_category, get_category_by_name
-from app.crud.faq import list_faqs_by_source
+from app.crud.faq import list_faqs_by_job, list_faqs_by_source
 from app.crud.harvest import (
     create_job,
     create_source,
@@ -25,6 +25,7 @@ from app.models.user import User
 from app.rag.pipeline import REFUSAL_SENTINEL, SYSTEM_PROMPT, _sanitize_text
 from app.schemas.common import PaginatedResponse
 from app.schemas.library import (
+    JobFaqOut,
     LibraryBatchSummaryOut,
     LibraryCrawlBatchRequest,
     LibraryCrawlBatchResponse,
@@ -92,6 +93,24 @@ async def list_all_sources(
 async def list_job_sources(job_id: int, db: AsyncSession = Depends(get_db)):
     sources = await get_sources_by_job(db, job_id)
     return [LibrarySourceOut.model_validate(s) for s in sources]
+
+
+@router.get("/jobs/{job_id}/faqs", response_model=list[JobFaqOut])
+async def list_job_faqs(job_id: int, db: AsyncSession = Depends(get_db)):
+    pairs = await list_faqs_by_job(db, job_id)
+    sources_by_id = {s.id: s for s in await get_sources_by_job(db, job_id)}
+    return [
+        JobFaqOut(
+            id=faq.id,
+            question=faq.question,
+            answer=faq.answer,
+            status=faq.status,
+            source_id=source_id,
+            source_url=sources_by_id[source_id].origin_url if source_id in sources_by_id else None,
+            source_filename=sources_by_id[source_id].original_filename if source_id in sources_by_id else None,
+        )
+        for faq, source_id in pairs
+    ]
 
 
 @router.delete("/jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
