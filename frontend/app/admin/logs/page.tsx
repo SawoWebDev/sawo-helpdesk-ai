@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { apiGet } from "@/lib/api";
+import { apiDelete, apiGet, ApiError } from "@/lib/api";
+import { useCurrentUser } from "@/lib/useCurrentUser";
 import Pagination from "@/components/admin/Pagination";
 
 interface ChatLog {
@@ -23,15 +24,18 @@ interface Paginated<T> {
 type FilterMode = "none" | "onward" | "range";
 
 export default function LogsPage() {
+  const { user } = useCurrentUser();
   const [logs, setLogs] = useState<ChatLog[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [filterMode, setFilterMode] = useState<FilterMode>("none");
   const [startAt, setStartAt] = useState("");
   const [endAt, setEndAt] = useState("");
+  const [clearing, setClearing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const pageSize = 20;
 
-  useEffect(() => {
+  function loadLogs() {
     const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
     if (filterMode === "onward" && startAt) {
       params.set("start_at", new Date(startAt).toISOString());
@@ -44,7 +48,9 @@ export default function LogsPage() {
       setLogs(data.items);
       setTotal(data.total);
     });
-  }, [page, filterMode, startAt, endAt]);
+  }
+
+  useEffect(loadLogs, [page, filterMode, startAt, endAt]);
 
   function handleModeChange(mode: FilterMode) {
     setFilterMode(mode);
@@ -53,9 +59,37 @@ export default function LogsPage() {
     setPage(1);
   }
 
+  async function handleClearAll() {
+    if (!confirm("Permanently delete ALL chat logs? This cannot be undone.")) return;
+    setClearing(true);
+    setError(null);
+    try {
+      await apiDelete("/api/logs");
+      setPage(1);
+      loadLogs();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to clear logs");
+    } finally {
+      setClearing(false);
+    }
+  }
+
   return (
     <div>
-      <h1 className="mb-6 text-xl font-semibold text-slate-800">Chat Logs</h1>
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-xl font-semibold text-slate-800">Chat Logs</h1>
+        {user?.role === "admin" && (
+          <button
+            onClick={handleClearAll}
+            disabled={clearing || total === 0}
+            className="rounded border border-red-300 px-3 py-2 text-sm font-medium text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {clearing ? "Clearing..." : "Clear all logs"}
+          </button>
+        )}
+      </div>
+
+      {error && <p className="mb-4 rounded bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
 
       <div className="mb-4 flex flex-wrap items-end gap-4 rounded-lg border border-slate-200 bg-white p-4">
         <div className="flex flex-col gap-1">
