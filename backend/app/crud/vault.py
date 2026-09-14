@@ -1,6 +1,7 @@
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.vec_store import VAULT_VEC_TABLE, delete_embedding, knn_search
 from app.models.vault_entry import VaultEntry
 
 
@@ -73,6 +74,7 @@ async def create_vault_entry(
 
 
 async def delete_vault_entry(db: AsyncSession, entry: VaultEntry) -> None:
+    await delete_embedding(db, VAULT_VEC_TABLE, entry.id)
     await db.delete(entry)
     await db.commit()
 
@@ -83,39 +85,68 @@ async def bulk_set_memory_enabled(db: AsyncSession, entry_ids: list[int], enable
     for entry in entries:
         entry.memory_enabled = enabled
         if not enabled:
-            entry.embedding = None
+            await db.execute(text(f"DELETE FROM {VAULT_VEC_TABLE} WHERE rowid = :id"), {"id": entry.id})
+            entry.has_embedding = False
     await db.commit()
     return entries
 
 
 async def keyword_search_vault(db: AsyncSession, query: str, limit: int = 20) -> list[tuple[VaultEntry, float, str]]:
-    """Full-text search via search_vector, ranked by ts_rank. Works even with
-    zero embeddings. Returns (entry, rank, excerpt) tuples."""
-    tsquery = func.plainto_tsquery("english", query)
-    rank = func.ts_rank(VaultEntry.search_vector, tsquery)
-    excerpt = func.ts_headline(
-        "english", VaultEntry.content, tsquery, "MaxWords=35, MinWords=15, StartSel=**, StopSel=**"
+    """FTS5 full-text search over title+content, ranked by bm25 (more negative
+    = better match, so we sort ascending and flip the sign for a 0..1-ish
+    score). Works even with zero embeddings. Returns (entry, rank, excerpt)."""
+    fts_stmt = text(
+        "SELECT rowid, bm25(vault_entries_fts) AS rank, "
+        "snippet(vault_entries_fts, -1, '**', '**', '...', 20) AS excerpt "
+        "FROM vault_entries_fts WHERE vault_entries_fts MATCH :query "
+        "ORDER BY rank LIMIT :limit"
     )
-    stmt = (
-        select(VaultEntry, rank.label("rank"), excerpt.label("excerpt"))
-        .where(VaultEntry.search_vector.op("@@")(tsquery))
-        .order_by(rank.desc())
-        .limit(limit)
-    )
-    result = await db.execute(stmt)
-    return [(entry, float(rank_val), excerpt_val) for entry, rank_val, excerpt_val in result.all()]
+    try:
+        rows = (await db.execute(fts_stmt, {"query": query, "limit": limit})).all()
+    except Exception:
+        # FTS5 raises on malformed MATCH syntax (bare punctuation, dangling
+        # operators, etc.) — treat that as "no keyword matches" rather than
+        # failing the whole hybrid search.
+        return []
+
+    if not rows:
+        return []
+
+    ids = [row.rowid for row in rows]
+    entries_by_id = {
+        entry.id: entry
+        for entry in (
+            await db.execute(select(VaultEntry).where(VaultEntry.id.in_(ids)))
+        ).scalars()
+    }
+
+    results = []
+    for row in rows:
+        entry = entries_by_id.get(row.rowid)
+        if entry is None:
+            continue
+        score = 1.0 / (1.0 + max(-row.rank, 0.0))
+        results.append((entry, score, row.excerpt))
+    return results
 
 
 async def semantic_search_vault(
     db: AsyncSession, query_vector: list[float], limit: int = 20
 ) -> list[tuple[VaultEntry, float]]:
-    """pgvector cosine-distance search, same shape as the FAQ RAG query."""
-    distance_expr = VaultEntry.embedding.cosine_distance(query_vector)
-    stmt = (
-        select(VaultEntry, distance_expr.label("distance"))
-        .where(VaultEntry.embedding.is_not(None))
-        .order_by(distance_expr)
-        .limit(limit)
-    )
-    result = await db.execute(stmt)
-    return [(entry, 1.0 - float(distance)) for entry, distance in result.all()]
+    """sqlite-vec cosine-similarity KNN search, same shape as the FAQ RAG query."""
+    hits = await knn_search(db, VAULT_VEC_TABLE, query_vector, limit)
+    if not hits:
+        return []
+
+    ids = [entry_id for entry_id, _ in hits]
+    entries_by_id = {
+        entry.id: entry
+        for entry in (
+            await db.execute(select(VaultEntry).where(VaultEntry.id.in_(ids)))
+        ).scalars()
+    }
+    return [
+        (entries_by_id[entry_id], similarity)
+        for entry_id, similarity in hits
+        if entry_id in entries_by_id
+    ]

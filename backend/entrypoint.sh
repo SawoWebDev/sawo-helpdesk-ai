@@ -1,36 +1,13 @@
 #!/bin/sh
 set -e
 
-echo "Waiting for database..."
-python -c "
-import asyncio
-import sys
-import time
-from sqlalchemy.ext.asyncio import create_async_engine
-from app.core.config import settings
-
-async def wait():
-    for _ in range(30):
-        try:
-            engine = create_async_engine(settings.database_url)
-            async with engine.connect() as conn:
-                pass
-            await engine.dispose()
-            return
-        except Exception:
-            time.sleep(2)
-    sys.exit('Database not reachable')
-
-asyncio.run(wait())
-"
-
 echo "Running migrations..."
 alembic upgrade head
 
 echo "Seeding initial admin and settings..."
 python -m app.seed
 
-echo "Re-embedding any stale entries (e.g. after an embedding dimension change)..."
+echo "Re-embedding any entries missing an embedding..."
 python -m app.reindex_stale
 
 echo "Starting server..."

@@ -1,7 +1,7 @@
-"""Re-embed FAQ/vault entries left with a null embedding — e.g. right after a
-migration that resized the vector column (old vectors can't be reinterpreted
-at a new dimension, so they're nulled out instead). Safe to run on every
-boot: a no-op once nothing has a null embedding."""
+"""Re-embed FAQ/vault entries whose `has_embedding` flag is False — e.g. right
+after a migration that changed the embedding provider/dimension (old vectors
+in the sqlite-vec tables get dropped since they can't be reinterpreted at a
+new width). Safe to run on every boot: a no-op once nothing is stale."""
 
 import asyncio
 import logging
@@ -21,13 +21,13 @@ logger = logging.getLogger(__name__)
 async def reindex_stale() -> None:
     async with AsyncSessionLocal() as db:
         has_stale_faq = (
-            await db.execute(select(exists().where(FAQEntry.embedding.is_(None))))
+            await db.execute(select(exists().where(FAQEntry.has_embedding.is_(False))))
         ).scalar()
         has_stale_vault = (
             await db.execute(
                 select(
                     exists().where(
-                        VaultEntry.embedding.is_(None), VaultEntry.memory_enabled.is_(True)
+                        VaultEntry.has_embedding.is_(False), VaultEntry.memory_enabled.is_(True)
                     )
                 )
             )

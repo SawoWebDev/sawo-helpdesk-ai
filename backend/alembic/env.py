@@ -6,7 +6,7 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.core.config import settings
-from app.db.base import Base
+from app.db.base import Base, _setup_connection
 from app.models import *  # noqa: F401,F403  (register all models on Base.metadata)
 
 config = context.config
@@ -42,6 +42,14 @@ async def run_migrations_online() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
+
+    # sqlite-vec must be loaded on this connection too, since 0001_init creates
+    # vec0 virtual tables directly in the migration.
+    from sqlalchemy import event
+
+    @event.listens_for(connectable.sync_engine, "connect")
+    def _load_sqlite_vec(dbapi_connection, connection_record) -> None:
+        dbapi_connection.run_async(_setup_connection)
 
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

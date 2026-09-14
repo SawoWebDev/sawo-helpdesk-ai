@@ -1,11 +1,8 @@
 from datetime import datetime
 
-from pgvector.sqlalchemy import Vector
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import JSON, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.config import settings
 from app.db.base import Base
 
 
@@ -18,11 +15,9 @@ class FAQEntry(Base):
     )
     question: Mapped[str] = mapped_column(Text, nullable=False)
     answer: Mapped[str] = mapped_column(Text, nullable=False)
-    image_urls: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
-    reference_urls: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
-    embedding: Mapped[list[float] | None] = mapped_column(
-        Vector(settings.embedding_dimensions), nullable=True
-    )
+    image_urls: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    reference_urls: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    has_embedding: Mapped[bool] = mapped_column(default=False, server_default="0")
     source: Mapped[str] = mapped_column(String(20), default="manual", server_default="manual")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

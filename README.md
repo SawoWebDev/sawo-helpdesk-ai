@@ -2,17 +2,19 @@
 
 A helpdesk chat system grounded strictly in an internal knowledge base via
 Retrieval-Augmented Generation (RAG). Public chat frontend (Next.js) + admin/agent
-backend (FastAPI) + PostgreSQL/pgvector for storage and similarity search +
-OpenRouter for embeddings/generation.
+backend (FastAPI) + SQLite for storage, with `sqlite-vec` for similarity search
+and FTS5 for keyword search + OpenRouter for embeddings/generation.
 
 ## Stack
 
 - Frontend: Next.js (App Router) + Tailwind CSS
-- Backend: Python + FastAPI (async, SQLAlchemy + psycopg/asyncpg)
-- Database: PostgreSQL + `pgvector`
+- Backend: Python + FastAPI (async, SQLAlchemy + aiosqlite)
+- Database: SQLite — `sqlite-vec` (vec0 virtual tables) for semantic search,
+  FTS5 for keyword search. A single file, no separate DB server/container.
 - AI engine: OpenRouter — model and embedding model configurable via admin Settings, no code change
 - File storage: local disk (`/uploads`), no cloud storage
-- Containerization: Podman Compose (primary), Docker Compose (compatible)
+- Containerization: Podman Compose (primary), Docker Compose (compatible) — optional,
+  since SQLite needs no separate database container
 
 ## Quick Start (Podman — recommended)
 
@@ -132,12 +134,10 @@ with new queries. Use the **Re-index All FAQs** button on the Settings page, or 
 POST /api/admin/reindex
 ```
 
-A migration that changes the vector column's dimension (e.g. switching embedding
-providers/models) nulls out existing embeddings, since vectors of different
-dimensions can't be reinterpreted. The backend's startup script
-(`entrypoint.sh`) runs `python -m app.reindex_stale` right after `alembic
-upgrade head`, which automatically re-embeds anything left null — no manual
-reindex needed after a routine deploy.
+Any entry whose `has_embedding` flag is false (e.g. a create/update call whose
+embedding request failed) is automatically retried on the next boot: the
+backend's startup script (`entrypoint.sh`) runs `python -m app.reindex_stale`
+right after `alembic upgrade head`.
 
 ## Excel Import
 
@@ -161,7 +161,8 @@ cd backend
 python -m venv .venv
 . .venv/Scripts/activate  # Windows Git Bash: source .venv/Scripts/activate
 pip install -r requirements-dev.txt
-# Point DATABASE_URL at a local Postgres with pgvector installed, then:
+# DATABASE_URL defaults to a local SQLite file (./helpdesk.db) — no separate
+# database server to install or run.
 alembic upgrade head
 python -m app.seed
 uvicorn app.main:app --reload
@@ -190,17 +191,21 @@ pytest
 ```
 backend/    FastAPI app, SQLAlchemy models, Alembic migrations, AI engine abstraction, RAG pipeline
 frontend/   Next.js public chat UI + admin/agent panel
-deploy/     Compose file and Postgres init scripts
+deploy/     Compose file for the (optional) containerized stack
 ```
 
 ## Data Model Summary
 
 - **Category** — supports nested categories via `parent_id`.
-- **FAQEntry** — question/answer/category/images/reference URLs + embedding vector.
+- **FAQEntry** — question/answer/category/images/reference URLs; `has_embedding`
+  flags whether a vector exists in the `faq_entries_vec` sqlite-vec table.
+- **VaultEntry** — harvested/manual knowledge entries; keyword-searchable via
+  the `vault_entries_fts` FTS5 table, semantically searchable via
+  `vault_entries_vec` when `memory_enabled`.
 - **UnansweredQuestion** — logged when no confident match is found; can be
   promoted into a new FAQEntry from the admin dashboard.
-- **ChatLog** — every question asked (answered or not) with matched FAQ ids,
-  confidence score, and which AI engine served it.
+- **ChatLog** — every question asked (answered or not) with matched FAQ/vault
+  ids, confidence score, and which AI engine served it.
 - **User** — admin/agent role-based backend accounts.
 - **Setting** — key/value store for AI engine config, fallback message,
   confidence threshold, and top-K retrieval count.
@@ -217,21 +222,16 @@ deploy/     Compose file and Postgres init scripts
   configured fallback message whenever similarity is below threshold or the
   model signals it cannot answer from context alone.
 
-## The whole stack is up from a single command
+## Quick Command Reference
 
-- podman-compose -f deploy/podman-compose.yml --env-file .env up -d --build
+```sh
+# Start (build images first time, or after a code change)
+podman-compose -f deploy/podman-compose.yml --env-file .env up -d --build
+
+# Start without rebuilding
+podman-compose -f deploy/podman-compose.yml --env-file .env up -d
+```
+
 - Chat: http://localhost:3000
 - Admin: http://localhost:3000/admin/login (admin / changeme123)
 - Backend: http://localhost:8001
-
-## To start not rebuild
-podman-compose -f deploy/podman-compose.yml --env-file .env up -d
-
-## Confirmed — still only bound to 127.0.0.1, matching exactly what I predicted. The netsh/firewall commands haven't been run yet (that requires an elevated PowerShell, which I can't run for you). Let's check if you're on an elevated shell now so I can try running them for you this time.
-
-Press Win, type PowerShell, right-click Windows PowerShell, choose Run as administrator
-Paste and run:
-netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=3000 connectaddress=127.0.0.1 connectport=3000
-netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=8001 connectaddress=127.0.0.1 connectport=8001
-New-NetFirewallRule -DisplayName "Helpdesk Frontend" -Direction Inbound -Action Allow -LocalPort 3000 -Protocol TCP
-New-NetFirewallRule -DisplayName "Helpdesk Backend" -Direction Inbound -Action Allow -LocalPort 8001 -Protocol TCP

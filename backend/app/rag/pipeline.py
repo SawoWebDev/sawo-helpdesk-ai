@@ -8,6 +8,7 @@ from app.ai.factory import get_active_engine, get_embedding_engine
 from app.core import setting_keys as keys
 from app.crud.category import get_or_create_other_category
 from app.crud.settings import get_all_settings
+from app.db.vec_store import FAQ_VEC_TABLE, VAULT_VEC_TABLE, knn_search
 from app.models.chat_log import ChatLog
 from app.models.faq import FAQEntry
 from app.models.unanswered import UnansweredQuestion
@@ -77,32 +78,34 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
     except AIEngineError:
         return await _fallback(db, question, fallback_message, None, engine_used="none")
 
-    faq_distance = FAQEntry.embedding.cosine_distance(query_vector)
-    faq_stmt = (
-        select(FAQEntry, faq_distance.label("distance"))
-        .where(FAQEntry.embedding.is_not(None))
-        .order_by(faq_distance)
-        .limit(top_k)
-    )
-    faq_rows = (await db.execute(faq_stmt)).all()
+    faq_hits = await knn_search(db, FAQ_VEC_TABLE, query_vector, top_k)
+    vault_hits = await knn_search(db, VAULT_VEC_TABLE, query_vector, top_k)
 
-    vault_distance = VaultEntry.embedding.cosine_distance(query_vector)
-    vault_stmt = (
-        select(VaultEntry, vault_distance.label("distance"))
-        .where(VaultEntry.embedding.is_not(None), VaultEntry.memory_enabled.is_(True))
-        .order_by(vault_distance)
-        .limit(top_k)
-    )
-    vault_rows = (await db.execute(vault_stmt)).all()
+    faq_ids = [entry_id for entry_id, _ in faq_hits]
+    faq_by_id = {
+        entry.id: entry
+        for entry in (await db.execute(select(FAQEntry).where(FAQEntry.id.in_(faq_ids)))).scalars()
+    } if faq_ids else {}
 
-    # Merge FAQ + Vault candidates by similarity (lower distance = closer) and
-    # take the combined top_k, so a strong vault match can outrank a weak FAQ
-    # match and vice versa. When vault_rows is empty, this is exactly today's
-    # FAQ-only result (already ordered by distance, same limit applied).
+    vault_ids = [entry_id for entry_id, _ in vault_hits]
+    vault_by_id = {}
+    if vault_ids:
+        vault_result = await db.execute(
+            select(VaultEntry).where(
+                VaultEntry.id.in_(vault_ids), VaultEntry.memory_enabled.is_(True)
+            )
+        )
+        vault_by_id = {entry.id: entry for entry in vault_result.scalars()}
+
+    # Merge FAQ + Vault candidates by similarity (higher = closer) and take the
+    # combined top_k, so a strong vault match can outrank a weak FAQ match and
+    # vice versa. When there are no vault hits, this is exactly today's
+    # FAQ-only result (same limit applied).
     rows = sorted(
-        [(("faq", entry), distance) for entry, distance in faq_rows]
-        + [(("vault", entry), distance) for entry, distance in vault_rows],
+        [(("faq", faq_by_id[entry_id]), similarity) for entry_id, similarity in faq_hits if entry_id in faq_by_id]
+        + [(("vault", vault_by_id[entry_id]), similarity) for entry_id, similarity in vault_hits if entry_id in vault_by_id],
         key=lambda pair: pair[1],
+        reverse=True,
     )[:top_k]
 
     if not rows:
@@ -110,8 +113,7 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
             return await _off_topic(db, question, off_topic_message, None)
         return await _fallback(db, question, fallback_message, None, engine_used="none")
 
-    (_best_kind, _best_entry), best_distance = rows[0]
-    best_similarity = 1.0 - float(best_distance)
+    (_best_kind, _best_entry), best_similarity = rows[0]
 
     if best_similarity < threshold:
         # Ambiguous zone: similarity alone can't reliably tell a genuine-but-vague
@@ -129,7 +131,7 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
     matched_vault_ids: list[int] = []
     image_urls: list[str] = []
     reference_urls: list[str] = []
-    for (kind, entry), _distance in rows:
+    for (kind, entry), _similarity in rows:
         if kind == "faq":
             context_parts.append(f"Q: {entry.question}\nA: {entry.answer}")
             matched_faq_ids.append(entry.id)

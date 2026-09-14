@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # Database
-    database_url: str = "postgresql+asyncpg://helpdesk:helpdesk@localhost:5432/helpdesk"
+    database_url: str = "sqlite+aiosqlite:///./helpdesk.db"
 
     # Auth
     jwt_secret: str = "change-me"

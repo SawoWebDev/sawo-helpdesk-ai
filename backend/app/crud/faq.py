@@ -1,6 +1,7 @@
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.vec_store import FAQ_VEC_TABLE, delete_embedding
 from app.models.faq import FAQEntry
 
 
@@ -80,5 +81,6 @@ async def create_faq(
 
 
 async def delete_faq(db: AsyncSession, entry: FAQEntry) -> None:
+    await delete_embedding(db, FAQ_VEC_TABLE, entry.id)
     await db.delete(entry)
     await db.commit()

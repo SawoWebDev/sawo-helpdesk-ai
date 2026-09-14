@@ -14,6 +14,7 @@ from app.crud.vault import (
     semantic_search_vault,
 )
 from app.db.session import get_db
+from app.db.vec_store import VAULT_VEC_TABLE, delete_embedding
 from app.rag.vault_reindex import embed_vault_entry
 from app.schemas.common import PaginatedResponse
 from app.schemas.vault import (
@@ -150,7 +151,8 @@ async def update(entry_id: int, payload: VaultEntryUpdate, db: AsyncSession = De
         if payload.memory_enabled and not entry.memory_enabled:
             memory_toggled_on = True
         elif not payload.memory_enabled and entry.memory_enabled:
-            entry.embedding = None
+            await delete_embedding(db, VAULT_VEC_TABLE, entry.id)
+            entry.has_embedding = False
         entry.memory_enabled = payload.memory_enabled
 
     if entry.memory_enabled and (changed_content or memory_toggled_on):

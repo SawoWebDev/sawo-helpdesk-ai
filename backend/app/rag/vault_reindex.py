@@ -2,6 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.factory import get_embedding_engine
+from app.db.vec_store import VAULT_VEC_TABLE, upsert_embedding
 from app.models.vault_entry import VaultEntry
 
 
@@ -17,7 +18,8 @@ async def embed_vault_entry(db: AsyncSession, entry: VaultEntry) -> None:
         return
     engine = await get_embedding_engine(db)
     [vector] = await engine.embed([_embedding_text(entry)])
-    entry.embedding = vector
+    await upsert_embedding(db, VAULT_VEC_TABLE, entry.id, vector)
+    entry.has_embedding = True
 
 
 async def reindex_all_vault(db: AsyncSession) -> int:
@@ -31,7 +33,8 @@ async def reindex_all_vault(db: AsyncSession) -> int:
     vectors = await engine.embed(texts)
 
     for entry, vector in zip(entries, vectors):
-        entry.embedding = vector
+        await upsert_embedding(db, VAULT_VEC_TABLE, entry.id, vector)
+        entry.has_embedding = True
 
     await db.commit()
     return len(entries)

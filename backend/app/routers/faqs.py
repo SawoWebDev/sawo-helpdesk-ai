@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.base import AIEngineError
 from app.core.deps import require_agent_or_admin
 from app.crud.faq import create_faq, delete_faq, get_faq, list_faqs
 from app.db.session import get_db
@@ -47,7 +48,10 @@ async def create(payload: FAQCreate, db: AsyncSession = Depends(get_db)):
         reference_urls=payload.reference_urls,
         source="manual",
     )
-    await embed_entry(db, entry)
+    try:
+        await embed_entry(db, entry)
+    except AIEngineError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
     await db.commit()
     await db.refresh(entry)
     return entry
@@ -68,7 +72,10 @@ async def update(faq_id: int, payload: FAQUpdate, db: AsyncSession = Depends(get
                 changed_content = True
 
     if changed_content:
-        await embed_entry(db, entry)
+        try:
+            await embed_entry(db, entry)
+        except AIEngineError as exc:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
     await db.commit()
     await db.refresh(entry)

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.base import AIEngineError
 from app.core.deps import require_agent_or_admin
 from app.crud.faq import create_faq
 from app.db.session import get_db
@@ -94,7 +95,10 @@ async def resolve(question_id: int, payload: UnansweredResolveRequest, db: Async
         reference_urls=payload.reference_urls,
         source="manual",
     )
-    await embed_entry(db, faq)
+    try:
+        await embed_entry(db, faq)
+    except AIEngineError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
     await db.commit()
     await db.refresh(faq)
 

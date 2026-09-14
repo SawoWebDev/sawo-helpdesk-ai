@@ -19,6 +19,12 @@ npm-debug.log*
 backend/uploads/*
 !backend/uploads/.gitkeep
 
+# SQLite database (runtime data)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
 # IDE
 .vscode/
 .idea/
