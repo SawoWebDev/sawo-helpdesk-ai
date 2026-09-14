@@ -93,6 +93,84 @@ async def fetch_url(url: str) -> tuple[str, str]:
         raise ParseError(f"Failed to fetch URL: {exc}") from exc
 
 
+SITEMAP_PATHS = ("/sitemap.xml", "/sitemap_index.xml", "/wp-sitemap.xml")
+MAX_SITEMAP_DOCS = 50  # cap how many nested sitemap files a sitemap index can point to
+MAX_SITEMAP_URLS = 2000  # cap total page URLs collected, so a huge site can't hang ingestion
+
+
+async def _fetch_xml(client: httpx.AsyncClient, url: str) -> str | None:
+    try:
+        resp = await client.get(url)
+        if resp.status_code != 200:
+            return None
+        return resp.text
+    except httpx.HTTPError:
+        return None
+
+
+def _parse_sitemap_xml(xml_text: str) -> tuple[list[str], list[str]]:
+    """Returns (page_urls, nested_sitemap_urls). A sitemap document is either
+    a <urlset> of actual pages or a <sitemapindex> pointing to other sitemap
+    documents — never both, per the sitemaps.org spec."""
+    soup = BeautifulSoup(xml_text, "xml")
+
+    nested = [loc.get_text(strip=True) for loc in soup.select("sitemapindex > sitemap > loc")]
+    if nested:
+        return [], nested
+
+    # Only top-level <url><loc> (the page's own URL), not <image:image><image:loc>
+    # nested inside it, which would otherwise get treated as a "page".
+    pages = [url_tag.find("loc").get_text(strip=True) for url_tag in soup.find_all("url") if url_tag.find("loc")]
+    return pages, []
+
+
+async def discover_sitemap_urls(site_url: str) -> list[str]:
+    """Given any URL on a site, finds and fully expands that site's sitemap
+    (following sitemap-index nesting, common with WordPress/Yoast SEO) and
+    returns every page URL it lists. Raises ParseError if no sitemap could be
+    found at any of the standard locations."""
+    parsed = httpx.URL(site_url)
+    origin = f"{parsed.scheme}://{parsed.host}"
+
+    async with httpx.AsyncClient(
+        timeout=CRAWL_TIMEOUT, follow_redirects=True, headers={"User-Agent": CRAWL_USER_AGENT}
+    ) as client:
+        root_xml = None
+        for path in SITEMAP_PATHS:
+            root_xml = await _fetch_xml(client, origin + path)
+            if root_xml:
+                break
+        if not root_xml:
+            raise ParseError(
+                f"No sitemap found at {origin} (tried {', '.join(SITEMAP_PATHS)}). "
+                "Enter individual page URLs instead."
+            )
+
+        pages, nested = _parse_sitemap_xml(root_xml)
+        all_pages: list[str] = list(pages)
+        visited_docs = 1
+
+        queue = list(nested)
+        while queue and visited_docs < MAX_SITEMAP_DOCS and len(all_pages) < MAX_SITEMAP_URLS:
+            doc_url = queue.pop(0)
+            xml_text = await _fetch_xml(client, doc_url)
+            visited_docs += 1
+            if not xml_text:
+                continue
+            sub_pages, sub_nested = _parse_sitemap_xml(xml_text)
+            all_pages.extend(sub_pages)
+            queue.extend(sub_nested)
+
+    # De-duplicate while preserving discovery order, and cap the final count.
+    seen: set[str] = set()
+    ordered_unique: list[str] = []
+    for url in all_pages:
+        if url not in seen:
+            seen.add(url)
+            ordered_unique.append(url)
+    return ordered_unique[:MAX_SITEMAP_URLS]
+
+
 def extract_text_for_file(filename: str, data: bytes) -> str:
     ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
     if ext == "pdf":

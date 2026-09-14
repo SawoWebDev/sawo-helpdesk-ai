@@ -17,13 +17,18 @@ from app.models.user import User
 from app.rag.pipeline import REFUSAL_SENTINEL, SYSTEM_PROMPT, _sanitize_text
 from app.schemas.common import PaginatedResponse
 from app.schemas.library import (
+    LibraryCrawlBatchRequest,
+    LibraryCrawlBatchResponse,
     LibraryCrawlRequest,
     LibrarySearchRequest,
     LibrarySearchResult,
     LibrarySearchResponse,
     LibrarySourceOut,
+    SitemapDiscoverRequest,
+    SitemapDiscoverResponse,
 )
 from app.services.library_ingest import process_file_source, process_url_source, regenerate_faqs_for_source
+from app.services.library_parsers import ParseError, discover_sitemap_urls
 
 # How many top-ranked chunks (by combined keyword+semantic score) get sent to
 # the LLM to synthesize an answer from. Kept small since this is a
@@ -142,6 +147,50 @@ async def crawl(
 
     background_tasks.add_task(process_url_source, source.id)
     return source
+
+
+@router.post("/discover-sitemap", response_model=SitemapDiscoverResponse)
+async def discover_sitemap(payload: SitemapDiscoverRequest):
+    if not payload.url.strip().lower().startswith(("http://", "https://")):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="URL must start with http:// or https://")
+    try:
+        urls = await discover_sitemap_urls(payload.url.strip())
+    except ParseError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return SitemapDiscoverResponse(urls=urls)
+
+
+@router.post("/crawl-batch", response_model=LibraryCrawlBatchResponse, status_code=status.HTTP_201_CREATED)
+async def crawl_batch(
+    payload: LibraryCrawlBatchRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_agent_or_admin),
+):
+    valid_urls = [u.strip() for u in payload.urls if u.strip().lower().startswith(("http://", "https://"))]
+    if not valid_urls:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No valid http(s) URLs provided")
+
+    resolved_category_id = await _resolve_category(db, payload.category_id, payload.new_category_name)
+
+    job = await create_job(
+        db, job_type="web_crawl_batch", config={"url_count": len(valid_urls)}, created_by_id=user.id
+    )
+
+    source_ids: list[int] = []
+    for url in valid_urls:
+        source = await create_source(
+            db,
+            job_id=job.id,
+            source_type="url",
+            category_id=resolved_category_id,
+            origin_url=url,
+            auto_generate_faqs=payload.auto_generate_faqs,
+        )
+        source_ids.append(source.id)
+        background_tasks.add_task(process_url_source, source.id)
+
+    return LibraryCrawlBatchResponse(queued=len(source_ids), source_ids=source_ids)
 
 
 @router.post("/search", response_model=LibrarySearchResponse)

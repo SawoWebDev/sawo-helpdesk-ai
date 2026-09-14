@@ -84,6 +84,10 @@ export default function LibraryPage() {
   const [file, setFile] = useState<File | null>(null);
   const [crawlUrl, setCrawlUrl] = useState("");
 
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveredUrls, setDiscoveredUrls] = useState<string[] | null>(null);
+  const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
+
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -184,6 +188,67 @@ export default function LibraryPage() {
       await loadSources();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to start crawl");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleDiscoverSitemap() {
+    if (!crawlUrl.trim()) return;
+    setDiscovering(true);
+    setError(null);
+    setMessage(null);
+    setDiscoveredUrls(null);
+    try {
+      const data = await apiPost<{ urls: string[] }>("/api/library/discover-sitemap", { url: crawlUrl.trim() });
+      setDiscoveredUrls(data.urls);
+      setSelectedUrls(new Set(data.urls));
+      if (data.urls.length === 0) {
+        setMessage("Sitemap found, but it listed no pages.");
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to discover sitemap");
+    } finally {
+      setDiscovering(false);
+    }
+  }
+
+  function toggleUrlSelected(url: string) {
+    setSelectedUrls((prev) => {
+      const next = new Set(prev);
+      if (next.has(url)) next.delete(url);
+      else next.add(url);
+      return next;
+    });
+  }
+
+  function toggleAllUrls() {
+    if (!discoveredUrls) return;
+    setSelectedUrls((prev) => (prev.size === discoveredUrls.length ? new Set() : new Set(discoveredUrls)));
+  }
+
+  async function handleCrawlSelected() {
+    const urls = Array.from(selectedUrls);
+    if (urls.length === 0) return;
+    setSubmitting(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const data = await apiPost<{ queued: number }>("/api/library/crawl-batch", {
+        urls,
+        category_id: newCategoryName.trim() ? null : categoryId,
+        new_category_name: newCategoryName.trim() || null,
+        auto_generate_faqs: autoGenerateFaqs,
+      });
+      setMessage(`Queued ${data.queued} page(s) for crawling.`);
+      setDiscoveredUrls(null);
+      setSelectedUrls(new Set());
+      setCrawlUrl("");
+      setNewCategoryName("");
+      if (newCategoryName.trim()) await loadCategories();
+      await loadSources();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to queue batch crawl");
     } finally {
       setSubmitting(false);
     }
@@ -304,24 +369,76 @@ export default function LibraryPage() {
             </button>
           </form>
         ) : (
-          <form onSubmit={handleCrawl} className="flex flex-wrap items-end gap-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-slate-500">URL</label>
-              <input
-                value={crawlUrl}
-                onChange={(e) => setCrawlUrl(e.target.value)}
-                placeholder="https://example.com/docs"
-                className="w-72 rounded border border-slate-300 px-3 py-2 text-sm"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={submitting || !crawlUrl.trim()}
-              className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-            >
-              {submitting ? "Queuing..." : "Crawl & Index"}
-            </button>
-          </form>
+          <div>
+            <form onSubmit={handleCrawl} className="flex flex-wrap items-end gap-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-slate-500">URL</label>
+                <input
+                  value={crawlUrl}
+                  onChange={(e) => setCrawlUrl(e.target.value)}
+                  placeholder="https://example.com/docs"
+                  className="w-72 rounded border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={submitting || !crawlUrl.trim()}
+                className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {submitting ? "Queuing..." : "Crawl This Page"}
+              </button>
+              <button
+                type="button"
+                onClick={handleDiscoverSitemap}
+                disabled={discovering || !crawlUrl.trim()}
+                className="rounded border border-slate-300 px-4 py-2 text-sm font-medium disabled:opacity-50"
+              >
+                {discovering ? "Discovering..." : "Discover All Pages (sitemap)"}
+              </button>
+            </form>
+            <p className="mt-2 text-xs text-slate-400">
+              &quot;Crawl This Page&quot; indexes only the URL above. &quot;Discover All Pages&quot; reads the
+              site&apos;s sitemap.xml to find every page it publishes, so you can index the whole site at once.
+            </p>
+
+            {discoveredUrls && discoveredUrls.length > 0 && (
+              <div className="mt-4 rounded-lg border border-slate-200 p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <label className="flex items-center gap-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={selectedUrls.size === discoveredUrls.length}
+                      onChange={toggleAllUrls}
+                    />
+                    {selectedUrls.size} of {discoveredUrls.length} pages selected
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleCrawlSelected}
+                    disabled={submitting || selectedUrls.size === 0}
+                    className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                  >
+                    {submitting ? "Queuing..." : `Crawl ${selectedUrls.size} Selected`}
+                  </button>
+                </div>
+                <div className="max-h-64 overflow-y-auto rounded border border-slate-100">
+                  {discoveredUrls.map((url) => (
+                    <label
+                      key={url}
+                      className="flex items-center gap-2 border-t border-slate-50 px-3 py-1.5 text-sm text-slate-600 first:border-t-0 hover:bg-slate-50"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedUrls.has(url)}
+                        onChange={() => toggleUrlSelected(url)}
+                      />
+                      <span className="truncate">{url}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
 

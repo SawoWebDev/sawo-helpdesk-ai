@@ -29,6 +29,26 @@ class LibraryCrawlRequest(BaseModel):
     auto_generate_faqs: bool = True
 
 
+class SitemapDiscoverRequest(BaseModel):
+    url: str
+
+
+class SitemapDiscoverResponse(BaseModel):
+    urls: list[str]
+
+
+class LibraryCrawlBatchRequest(BaseModel):
+    urls: list[str] = Field(min_length=1, max_length=500)
+    category_id: int | None = None
+    new_category_name: str | None = None
+    auto_generate_faqs: bool = True
+
+
+class LibraryCrawlBatchResponse(BaseModel):
+    queued: int
+    source_ids: list[int]
+
+
 class LibrarySearchRequest(BaseModel):
     query: str
     limit: int = Field(default=20, ge=1, le=100)
