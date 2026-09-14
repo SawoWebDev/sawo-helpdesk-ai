@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
 import { apiDelete, apiGet, apiPost, getToken, ApiError } from "@/lib/api";
 import CategorySelect, { CategoryOption } from "@/components/admin/CategorySelect";
 import Pagination from "@/components/admin/Pagination";
@@ -101,8 +102,16 @@ function SourceRow({
           </p>
         )}
       </td>
-      <td className="px-4 py-2 text-slate-500">
-        {s.faq_generation_status === "processing" ? "Generating..." : s.generated_faq_count}
+      <td className="px-4 py-2">
+        {s.faq_generation_status === "processing" ? (
+          <span className="text-slate-500">Generating...</span>
+        ) : s.generated_faq_count > 0 ? (
+          <Link href={`/admin/library/sources/${s.id}/faqs`} className="text-blue-600 hover:underline">
+            {s.generated_faq_count}
+          </Link>
+        ) : (
+          <span className="text-slate-500">0</span>
+        )}
       </td>
       <td className="px-4 py-2 text-right">
         <button
@@ -110,7 +119,7 @@ function SourceRow({
           disabled={s.status !== "indexed"}
           className="mr-3 text-blue-600 disabled:cursor-not-allowed disabled:text-slate-300"
         >
-          Generate FAQs
+          {s.generated_faq_count > 0 ? "Regenerate FAQs" : "Generate FAQs"}
         </button>
         <button onClick={() => onDelete(s)} className="text-red-600">
           Delete

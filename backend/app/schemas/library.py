@@ -90,3 +90,10 @@ class LibrarySearchResult(BaseModel):
 class LibrarySearchResponse(BaseModel):
     answer: str | None
     results: list[LibrarySearchResult]
+
+
+class SourceFaqOut(BaseModel):
+    id: int
+    question: str
+    answer: str
+    status: str

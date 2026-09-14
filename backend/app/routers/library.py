@@ -36,6 +36,7 @@ from app.schemas.library import (
     LibrarySourceOut,
     SitemapDiscoverRequest,
     SitemapDiscoverResponse,
+    SourceFaqOut,
 )
 from app.services.library_ingest import process_file_source, process_url_source, regenerate_faqs_for_source
 from app.services.library_parsers import ParseError, discover_sitemap_urls
@@ -282,6 +283,14 @@ async def search(payload: LibrarySearchRequest, db: AsyncSession = Depends(get_d
     return LibrarySearchResponse(answer=answer, results=[result for result, _entry in results])
 
 
+@router.get("/sources/{source_id}", response_model=LibrarySourceOut)
+async def get_one_source(source_id: int, db: AsyncSession = Depends(get_db)):
+    source = await get_source(db, source_id)
+    if source is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Library source not found")
+    return source
+
+
 @router.post("/sources/{source_id}/generate-faqs", status_code=status.HTTP_202_ACCEPTED)
 async def trigger_faq_generation(
     source_id: int,
@@ -298,13 +307,10 @@ async def trigger_faq_generation(
     return {"status": "queued"}
 
 
-@router.get("/sources/{source_id}/faqs")
+@router.get("/sources/{source_id}/faqs", response_model=list[SourceFaqOut])
 async def get_source_faqs(source_id: int, db: AsyncSession = Depends(get_db)):
     faqs = await list_faqs_by_source(db, source_id)
-    return [
-        {"id": f.id, "question": f.question, "answer": f.answer, "status": f.status}
-        for f in faqs
-    ]
+    return [SourceFaqOut(id=f.id, question=f.question, answer=f.answer, status=f.status) for f in faqs]
 
 
 @router.delete("/sources/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
