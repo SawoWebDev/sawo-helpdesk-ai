@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass, field
 
 from sqlalchemy import select
@@ -41,6 +42,24 @@ OFF_TOPIC_SYSTEM_PROMPT = (
     "topics. Do not answer questions outside product/support, do not make up "
     "product facts, and do not be repetitive or robotic."
 )
+
+
+def _looks_like_real_reply(text: str) -> bool:
+    """Guards against a free/low-quality model returning something that isn't
+    an actual reply — e.g. a leaked internal classifier tag ("User Safety:
+    safe"), a bare label, or a one-word non-answer — instead of the natural
+    sentence it was asked to write."""
+    stripped = text.strip()
+    if len(stripped) < 15:
+        return False
+    # "Label: value" / "Label - value" shaped output, one line, no real
+    # sentence punctuation — the shape a leaked classifier tag takes.
+    if "\n" not in stripped and re.match(r"^[A-Za-z][A-Za-z0-9 _-]{2,30}[:\-]\s*\S+$", stripped):
+        if not any(p in stripped for p in ".!?"):
+            return False
+    if not any(c.isalpha() for c in stripped):
+        return False
+    return True
 
 
 async def _is_on_topic(engine, question: str) -> bool:
@@ -203,10 +222,13 @@ async def _off_topic(
     what was actually said; falls back to the fixed configured message (still
     on-topic, still safe) if that call fails."""
     try:
-        answer = await engine.generate(OFF_TOPIC_SYSTEM_PROMPT, "", question)
-        if not answer:
+        generated = await engine.generate(OFF_TOPIC_SYSTEM_PROMPT, "", question)
+        if generated and _looks_like_real_reply(generated):
+            answer = generated
+            engine_used = engine.name
+        else:
             answer = off_topic_message
-        engine_used = engine.name
+            engine_used = "none"
     except AIEngineError:
         answer = off_topic_message
         engine_used = "none"

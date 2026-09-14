@@ -243,14 +243,27 @@ fields most people need to change:
 No code changes or redeploys are required — the change takes effect on the
 next chat request.
 
-**Generation model default: `openrouter/free`** — OpenRouter's own router
-that automatically picks a currently-available free model, so answers cost
-nothing and there's no specific model to keep up to date by hand. It's rate
-limited rather than billed (starts at 20 requests/min, 200/day; rises to
-1,000/day once you've ever added $10+ in OpenRouter credit, which doesn't
-need to be spent). Set a specific paid model string instead if you want
-consistent behavior from one named model rather than whichever free one
-OpenRouter routes to.
+**Generation model default: `google/gemma-4-31b-it:free`** — a specific,
+verified-working free model rather than OpenRouter's own opaque `openrouter/free`
+router, which was tried first but turned out to route to inconsistent-quality
+models (including, once, a response that leaked an internal safety-classifier
+tag instead of writing an actual reply).
+
+Free-tier availability shifts over time (rate limits, models discontinued or
+renamed), so **whenever the configured model is itself a `:free` model**, a
+failed generation call automatically retries a short built-in list of other
+verified free models (`FREE_MODEL_FALLBACKS` in
+`backend/app/ai/openrouter_engine.py`) before giving up. A paid model you've
+explicitly configured is never silently swapped out. Free tiers are rate
+limited rather than billed (starts at 20 requests/min, 200/day per model;
+rises to 1,000/day once you've ever added $10+ in OpenRouter credit, which
+doesn't need to be spent).
+
+Every generated reply — including the off-topic small-talk redirect — is also
+sanity-checked before being shown (`_looks_like_real_reply` in
+`backend/app/rag/pipeline.py`): too short, no letters, or shaped like a
+leaked label (`Key: value` with no sentence punctuation) falls back to the
+fixed configured message instead of showing something broken to the user.
 
 **Embedding model** (`openai/text-embedding-3-small` by default) isn't
 exposed in the Settings UI — it's a config-only value (`OPENROUTER_EMBEDDING_MODEL`

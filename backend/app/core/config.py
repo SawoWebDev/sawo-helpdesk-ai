@@ -29,7 +29,7 @@ class Settings(BaseSettings):
 
     # AI engine defaults (used only for first-boot Settings seed; live config is in DB)
     openrouter_api_key: str = ""
-    openrouter_model: str = "openrouter/free"
+    openrouter_model: str = "google/gemma-4-31b-it:free"
     openrouter_embedding_model: str = "openai/text-embedding-3-small"
 
     default_fallback_message: str = (
