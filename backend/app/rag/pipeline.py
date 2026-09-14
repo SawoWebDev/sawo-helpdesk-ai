@@ -44,6 +44,32 @@ OFF_TOPIC_SYSTEM_PROMPT = (
 )
 
 
+_UNICODE_PUNCTUATION_MAP = {
+    "‐": "-",  # hyphen
+    "‑": "-",  # non-breaking hyphen
+    "‒": "-",  # figure dash
+    "–": "-",  # en dash
+    "—": "-",  # em dash
+    "―": "-",  # horizontal bar
+    "‘": "'",  # left single quote
+    "’": "'",  # right single quote
+    "“": '"',  # left double quote
+    "”": '"',  # right double quote
+    "…": "...",  # ellipsis
+}
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _sanitize_text(text: str) -> str:
+    """Some free/low-quality models emit smart-punctuation or stray control
+    characters that certain fonts/renderers show as a broken box instead of
+    the intended glyph. Normalize to plain ASCII punctuation and strip
+    control characters before the text ever reaches a client."""
+    for unicode_char, ascii_char in _UNICODE_PUNCTUATION_MAP.items():
+        text = text.replace(unicode_char, ascii_char)
+    return _CONTROL_CHARS_RE.sub("", text)
+
+
 def _looks_like_real_reply(text: str) -> bool:
     """Guards against a free/low-quality model returning something that isn't
     an actual reply — e.g. a leaked internal classifier tag ("User Safety:
@@ -185,6 +211,8 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
             db, question, fallback_message, best_similarity, engine_used=engine.name
         )
 
+    generated = _sanitize_text(generated)
+
     chat_log = ChatLog(
         question_text=question,
         answer_text=generated,
@@ -224,7 +252,7 @@ async def _off_topic(
     try:
         generated = await engine.generate(OFF_TOPIC_SYSTEM_PROMPT, "", question)
         if generated and _looks_like_real_reply(generated):
-            answer = generated
+            answer = _sanitize_text(generated)
             engine_used = engine.name
         else:
             answer = off_topic_message
