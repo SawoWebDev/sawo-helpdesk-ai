@@ -1,48 +1,189 @@
 # Chat Helpdesk — RAG-based AI Helpdesk
 
-A helpdesk chat system grounded strictly in an internal knowledge base via
-Retrieval-Augmented Generation (RAG). Public chat frontend (Next.js) + admin/agent
-backend (FastAPI) + SQLite for storage, with `sqlite-vec` for similarity search
-and FTS5 for keyword search + OpenRouter for embeddings/generation.
+A helpdesk chat system that answers questions **only** from an internal
+knowledge base, using Retrieval-Augmented Generation (RAG). If nothing in the
+knowledge base is relevant enough, it says so and logs the question for a
+human agent instead of guessing.
 
-## Stack
+## What's inside
 
-- Frontend: Next.js (App Router) + Tailwind CSS
-- Backend: Python + FastAPI (async, SQLAlchemy + aiosqlite)
-- Database: SQLite — `sqlite-vec` (vec0 virtual tables) for semantic search,
-  FTS5 for keyword search. A single file, no separate DB server/container.
-- AI engine: OpenRouter — model and embedding model configurable via admin Settings, no code change
-- File storage: local disk (`/uploads`), no cloud storage
-- Containerization: Podman Compose (primary), Docker Compose (compatible) — optional,
-  since SQLite needs no separate database container
+| Layer | Tech |
+|---|---|
+| Public chat UI | Next.js (App Router) + Tailwind CSS |
+| Admin/agent panel | Same Next.js app, under `/admin/*` |
+| Backend API | Python + FastAPI (async) |
+| Database | SQLite — a single file, no separate DB server |
+| Semantic search | `sqlite-vec` (vector similarity, cosine distance) |
+| Keyword search | SQLite FTS5 (full-text, bm25-ranked) |
+| AI (chat + embeddings) | OpenRouter (one API key, model configurable per use) |
+| File storage | Local disk (`backend/uploads/`) |
+| Containers | Podman Compose (optional — see below) |
 
-## Quick Start (Podman — recommended)
+There is no local model runtime (no Ollama, no GPU needed) and no database
+server to install — everything embeddable runs inside the Python process or
+inside SQLite itself.
 
-1. Copy the environment template and adjust values:
+## How it's organized
 
-   ```sh
-   cp .env.example .env
-   ```
+```
+backend/
+  app/
+    ai/          OpenRouter client (chat completions + embeddings)
+    core/        settings (env), JWT/password security, role-based deps
+    crud/        DB read/write functions, one module per entity
+    db/          SQLAlchemy engine/session setup, sqlite-vec helper (vec_store.py)
+    models/      SQLAlchemy ORM models (the tables)
+    rag/         the RAG pipeline itself (retrieval + generation + reindexing)
+    routers/     FastAPI endpoints, one module per resource
+    schemas/     Pydantic request/response shapes
+    services/    higher-level flows (Excel import/export)
+    seed.py      creates the initial admin user + default settings
+    reindex_stale.py   re-embeds any entry missing a vector, run on boot
+  alembic/       DB schema migrations
+  entrypoint.sh  container startup: migrate -> seed -> reindex -> serve
+frontend/
+  app/           Next.js pages — public chat at `/`, admin panel at `/admin/*`
+  app/api/[...path]/route.ts   proxies /api/* to the backend (see below)
+deploy/
+  podman-compose.yml   optional: runs backend + frontend as containers
+```
 
-2. Build and start the stack:
+## The RAG flow (how a chat question gets answered)
 
-   ```sh
-   podman compose -f deploy/podman-compose.yml --env-file .env up -d --build
-   ```
+This is the core of the app — [backend/app/rag/pipeline.py](backend/app/rag/pipeline.py):
 
-3. Open the app:
-   - Public chat: http://localhost:3000
-   - Admin panel: http://localhost:3000/admin/login
+1. **Filler check** — obviously empty/junk input is redirected immediately
+   without spending an API call.
+2. **Embed the question** — sent to OpenRouter's embeddings endpoint to get a
+   vector.
+3. **Search two sources in parallel**, both via `sqlite-vec` KNN queries:
+   - `faq_entries_vec` — every FAQ that has an embedding.
+   - `vault_entries_vec` — every Vault entry that has `memory_enabled = true`.
+4. **Merge and rank** the two result sets by similarity (cosine), take the
+   top-K overall (K is configurable in Settings) — a strong Vault match can
+   outrank a weak FAQ match, or vice versa.
+5. **Threshold check** against the best match's similarity score:
+   - **Above the confidence threshold** → build a context block from the
+     matched entries and ask OpenRouter to answer strictly from that context.
+   - **Below the confidence threshold but above the off-topic threshold** →
+     a real question the AI isn't confident about; return the fallback
+     message and log it as an `UnansweredQuestion` for an agent to review.
+   - **Below the off-topic threshold** → treated as small talk/greetings;
+     return the off-topic redirect message, nothing logged.
+6. **Guard against hallucination** — the system prompt instructs the model to
+   respond with a fixed refusal sentinel if the context doesn't actually
+   answer the question; that sentinel is caught and turned into the fallback
+   message rather than shown to the user.
+7. **Log everything** — every question (answered, fallback, or off-topic) is
+   written to `ChatLog` with which FAQ/Vault ids matched, the confidence
+   score, and which engine served it.
 
-   Log in with the seeded admin credentials from `.env`
-   (`INITIAL_ADMIN_USERNAME` / `INITIAL_ADMIN_PASSWORD`).
+See [Off-Topic Chatter vs. Unanswered Questions](#off-topic-chatter-vs-unanswered-questions)
+below for how the two thresholds are meant to be tuned.
 
-## Quick Start (Docker Compose — alternative)
+### FAQ vs. Vault — two knowledge sources
 
-The same Compose file works with Docker:
+- **FAQ** (`FAQEntry`) is the original, primary knowledge base: question +
+  answer pairs, managed directly in the admin panel or bulk-imported from
+  Excel. Always semantically searchable once it has an embedding.
+- **Vault** (`VaultEntry`) is a second, more general knowledge store — free-form
+  title + content entries, optionally tagged and categorized, with a
+  `memory_enabled` flag that opts an entry into RAG (embedding it, so it can
+  be retrieved during chat). Vault has its own admin search endpoint that
+  combines FTS5 keyword search and `sqlite-vec` semantic search into one
+  ranked list, independent of the chat pipeline.
+- **Harvester** (`HarvestJob` / `HarvestSource` models) is scaffolding for a
+  planned feature — bulk-ingesting external documents/URLs into the Vault —
+  but no ingestion service or endpoint exists yet; only the DB tables are in
+  place.
+
+### Keeping embeddings in sync
+
+Vectors live in separate `sqlite-vec` virtual tables (`faq_entries_vec`,
+`vault_entries_vec`), keyed by the owning row's id — not as a column on the
+FAQ/Vault tables themselves, since `sqlite-vec` doesn't support nullable
+vector columns. Each FAQ/Vault row has a `has_embedding` boolean flag so the
+app can tell whether a vector currently exists.
+
+- Creating/editing an FAQ (or a memory-enabled Vault entry) re-embeds it
+  immediately.
+- `python -m app.reindex_stale` (run automatically by `entrypoint.sh` on every
+  boot) finds any row with `has_embedding = false` and retries — covers the
+  case where an embedding call failed (e.g. bad/missing API key at the time).
+- `POST /api/admin/reindex` re-embeds **everything**, for when you change the
+  embedding model and need every vector regenerated at the new dimension.
+
+## How to Run
+
+No container runtime is required — SQLite is just a file, and OpenRouter is
+a remote API. Podman is only a convenience if you want backend + frontend
+bundled behind one command.
+
+### Option A — run directly (recommended for development)
+
+**Backend:**
+
+```sh
+cd backend
+python -m venv .venv
+. .venv/Scripts/activate        # Windows Git Bash; use .venv\Scripts\activate.bat for cmd.exe
+pip install -r requirements-dev.txt
+alembic upgrade head            # creates ./helpdesk.db with all tables + sqlite-vec + FTS5
+python -m app.seed               # creates the initial admin user + default settings
+uvicorn app.main:app --reload
+```
+
+**Frontend** (separate terminal):
+
+```sh
+cd frontend
+npm install
+npm run dev
+```
+
+The frontend proxies `/api/*` and `/uploads/*` to `BACKEND_INTERNAL_URL`
+(defaults to `http://localhost:8000`, matching the backend's default port).
+
+Then open:
+- Public chat: http://localhost:3000
+- Admin panel: http://localhost:3000/admin/login (`admin` / `changeme123` by
+  default — see `.env.example` / `INITIAL_ADMIN_*` to change them)
+
+**Before chat/embeddings will work**, set an OpenRouter API key — either put
+`OPENROUTER_API_KEY=...` in `backend/.env`, or log in as admin and set it
+under **Settings** in the admin panel (no restart needed either way).
+
+### Option B — Podman Compose (bundles backend + frontend)
+
+```sh
+cp .env.example .env      # fill in OPENROUTER_API_KEY, JWT_SECRET, admin creds
+podman compose -f deploy/podman-compose.yml --env-file .env up -d --build
+```
+
+Docker Compose works identically with the same file:
 
 ```sh
 docker compose -f deploy/podman-compose.yml --env-file .env up -d --build
+```
+
+Same URLs as above, except the backend is published on **8001** instead of
+8000 (`http://localhost:8001`). The SQLite database and uploaded files
+persist in the `db_data` / `uploads_data` named volumes across restarts.
+
+Common commands:
+
+```sh
+# Rebuild after a code change
+podman-compose -f deploy/podman-compose.yml --env-file .env up -d --build
+
+# Start without rebuilding
+podman-compose -f deploy/podman-compose.yml --env-file .env up -d
+
+# Stop and remove the containers (data volumes are kept)
+podman-compose -f deploy/podman-compose.yml --env-file .env down
+
+# Tail backend logs
+podman logs -f deploy_backend_1
 ```
 
 ## LAN Access (reaching it from other devices, not just localhost)
@@ -77,8 +218,8 @@ your active Wi-Fi/Ethernet adapter), then browse to
 `http://<that-ip>:3000` from another device on the same network. No app code
 changes are needed for this: the frontend's browser-facing code only ever
 calls relative `/api/*` paths, which stay same-origin against whatever host
-the page was loaded from and get proxied server-side to the backend container
-— CORS is never a factor for normal use.
+the page was loaded from and get proxied server-side to the backend — CORS is
+never a factor for normal use.
 
 To remove the port proxy rules later:
 
@@ -89,132 +230,89 @@ netsh interface portproxy delete v4tov4 listenaddress=0.0.0.0 listenport=8001
 
 ## AI Engine (OpenRouter)
 
-The system uses **OpenRouter** for both generation and embeddings, via a single
-API key:
+The system uses **OpenRouter** for both generation and embeddings, via a
+single API key. Configure it from the admin panel:
 
-1. Log in to the admin panel as an admin user.
+1. Log in as an admin user.
 2. Go to **Settings**.
 3. Provide an **OpenRouter API Key**, a generation model (default suggestion:
    `meta-llama/llama-3-70b-instruct`), and an embedding model (default:
    `openai/text-embedding-3-small`), then save.
 
-No code changes or redeploys are required — the change takes effect on the next
-chat request. Changing the embedding model requires re-indexing (see below),
-since existing vectors were produced by the previous model.
+No code changes or redeploys are required — the change takes effect on the
+next chat request. Changing the embedding model requires re-indexing (see
+above), since existing vectors were produced by the previous model at a
+possibly different dimension.
 
 ## Off-Topic Chatter vs. Unanswered Questions
 
-Every question is scored by similarity against the knowledge base. Two thresholds
-(both editable in Settings) split the outcome three ways:
+Every question is scored by similarity against the knowledge base. Two
+thresholds (both editable in Settings) split the outcome three ways:
 
-- **Above Confidence Threshold** (default 0.75) — answered from the matched FAQ(s).
-- **Between the two thresholds** — a genuine question the AI can't confidently
-  answer; the configurable fallback message is shown and it's logged as an
-  `UnansweredQuestion` (category auto-assigned to **Other**) for agent review.
-- **Below Off-Topic Threshold** (default 0.35) — treated as small talk/greetings
-  unrelated to any product or technical topic ("hi", "thanks", "how are you?");
-  the off-topic redirect message is shown and **nothing is logged for review**.
+- **Above Confidence Threshold** (default 0.75) — answered from the matched
+  FAQ/Vault entries.
+- **Between the two thresholds** — a genuine question the AI can't
+  confidently answer; the configurable fallback message is shown and it's
+  logged as an `UnansweredQuestion` (category auto-assigned to **Other**) for
+  agent review.
+- **Below Off-Topic Threshold** (default 0.35) — treated as small
+  talk/greetings unrelated to any product or technical topic ("hi", "thanks",
+  "how are you?"); the off-topic redirect message is shown and **nothing is
+  logged for review**.
 
-The off-topic threshold is intentionally conservative by default: with a small or
-new knowledge base, a vaguely worded real question (e.g. "can I get a refund")
-can score in the same range as pure chatter. Raising the threshold gives a
-cleaner review queue but risks silently redirecting real questions instead of
-logging them; only raise it once the knowledge base is large enough that real
-questions reliably score higher than greetings. When in doubt, keep it low —
-a false positive here just means an occasional greeting shows up in the
-Unanswered Questions queue, which is easy for an agent to dismiss.
+The off-topic threshold is intentionally conservative by default: with a
+small or new knowledge base, a vaguely worded real question (e.g. "can I get
+a refund") can score in the same range as pure chatter. Raising the threshold
+gives a cleaner review queue but risks silently redirecting real questions
+instead of logging them; only raise it once the knowledge base is large
+enough that real questions reliably score higher than greetings. When in
+doubt, keep it low — a false positive here just means an occasional greeting
+shows up in the Unanswered Questions queue, which is easy for an agent to
+dismiss.
 
-## Re-indexing
+## Excel Import / Export
 
-If you change the embedding model (`OpenRouter Embedding Model` in Settings), all
-existing FAQ and vault entries must be re-embedded so their vectors stay consistent
-with new queries. Use the **Re-index All FAQs** button on the Settings page, or call:
-
-```
-POST /api/admin/reindex
-```
-
-Any entry whose `has_embedding` flag is false (e.g. a create/update call whose
-embedding request failed) is automatically retried on the next boot: the
-backend's startup script (`entrypoint.sh`) runs `python -m app.reindex_stale`
-right after `alembic upgrade head`.
-
-## Excel Import
-
-FAQ entries can be bulk-imported via `.xlsx` with a fixed column structure:
+FAQ entries can be bulk-imported or exported via `.xlsx` with a fixed column
+structure:
 
 ```
 Category | Question | Answer | Image URL | Reference URL
 ```
 
-Download the exact template from the FAQ list page ("Download Template") or
-`GET /api/faqs/template`. Categories support nesting via `Parent > Child` in the
-Category column; missing categories are auto-created. Row-level errors (missing
-required fields, etc.) are reported without failing the whole import.
-
-## Local Development (without containers)
-
-### Backend
-
-```sh
-cd backend
-python -m venv .venv
-. .venv/Scripts/activate  # Windows Git Bash: source .venv/Scripts/activate
-pip install -r requirements-dev.txt
-# DATABASE_URL defaults to a local SQLite file (./helpdesk.db) — no separate
-# database server to install or run.
-alembic upgrade head
-python -m app.seed
-uvicorn app.main:app --reload
-```
-
-### Frontend
-
-```sh
-cd frontend
-npm install
-npm run dev
-```
-
-The frontend proxies `/api/*` and `/uploads/*` to `BACKEND_INTERNAL_URL`
-(defaults to `http://localhost:8000` for local dev).
-
-## Running Tests
-
-```sh
-cd backend
-pytest
-```
-
-## Project Layout
-
-```
-backend/    FastAPI app, SQLAlchemy models, Alembic migrations, AI engine abstraction, RAG pipeline
-frontend/   Next.js public chat UI + admin/agent panel
-deploy/     Compose file for the (optional) containerized stack
-```
+- **Import**: `POST /api/faqs/import`, or "Import Excel" on the FAQ list page.
+  Categories support nesting via `Parent > Child`; missing categories are
+  auto-created. Row-level errors (missing required fields, embedding
+  failures, etc.) are reported without failing the whole import.
+- **Export**: `GET /api/faqs/export` (respects the same `category_id`/`search`
+  filters as the FAQ list), or "Export Excel" on the FAQ list page. Uses the
+  same column layout as the import template, so an exported file can be
+  edited and re-imported directly.
+- **Template**: `GET /api/faqs/template`, or "Download Template" on the FAQ
+  list page.
 
 ## Data Model Summary
 
 - **Category** — supports nested categories via `parent_id`.
 - **FAQEntry** — question/answer/category/images/reference URLs; `has_embedding`
-  flags whether a vector exists in the `faq_entries_vec` sqlite-vec table.
-- **VaultEntry** — harvested/manual knowledge entries; keyword-searchable via
-  the `vault_entries_fts` FTS5 table, semantically searchable via
-  `vault_entries_vec` when `memory_enabled`.
+  flags whether a vector exists in `faq_entries_vec`.
+- **VaultEntry** — free-form knowledge entries (harvested or manual);
+  keyword-searchable via `vault_entries_fts` (FTS5), semantically searchable
+  via `vault_entries_vec` once `memory_enabled` is true.
+- **HarvestJob** / **HarvestSource** — scaffolding for a future bulk-ingestion
+  feature; tables exist, no ingestion logic yet.
 - **UnansweredQuestion** — logged when no confident match is found; can be
   promoted into a new FAQEntry from the admin dashboard.
-- **ChatLog** — every question asked (answered or not) with matched FAQ/vault
+- **ChatLog** — every question asked (answered or not) with matched FAQ/Vault
   ids, confidence score, and which AI engine served it.
 - **User** — admin/agent role-based backend accounts.
-- **Setting** — key/value store for AI engine config, fallback message,
-  confidence threshold, and top-K retrieval count.
+- **Setting** — key/value store for AI engine config, fallback/off-topic
+  messages, thresholds, and top-K retrieval count.
 
 ## Security Notes
 
 - Passwords hashed with Argon2; sessions are JWT bearer tokens.
 - Role checks (`admin` vs `agent`) are enforced server-side on every protected
-  route, not just hidden in the UI.
+  route (`app/core/deps.py`), not just hidden in the UI.
 - Uploaded files are validated by extension/size and saved under randomly
   generated filenames — the original filename is never used for the path.
 - The chat pipeline calls the LLM with a system prompt that strictly restricts
@@ -222,16 +320,9 @@ deploy/     Compose file for the (optional) containerized stack
   configured fallback message whenever similarity is below threshold or the
   model signals it cannot answer from context alone.
 
-## Quick Command Reference
+## Running Tests
 
 ```sh
-# Start (build images first time, or after a code change)
-podman-compose -f deploy/podman-compose.yml --env-file .env up -d --build
-
-# Start without rebuilding
-podman-compose -f deploy/podman-compose.yml --env-file .env up -d
+cd backend
+pytest
 ```
-
-- Chat: http://localhost:3000
-- Admin: http://localhost:3000/admin/login (admin / changeme123)
-- Backend: http://localhost:8001
