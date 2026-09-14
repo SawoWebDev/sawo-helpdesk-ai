@@ -279,6 +279,7 @@ async def search(payload: LibrarySearchRequest, db: AsyncSession = Depends(get_d
                     match_type=item["match_type"],
                     source_id=entry.source_id,
                     category_id=entry.category_id,
+                    source_url=entry.source_url,
                 ),
                 entry,
             )

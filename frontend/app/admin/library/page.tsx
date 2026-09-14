@@ -56,6 +56,7 @@ interface SearchResult {
   match_type: string;
   source_id: number | null;
   category_id: number | null;
+  source_url: string | null;
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -629,7 +630,18 @@ export default function LibraryPage() {
                   .map((r) => (
                     <div key={r.entry_id} className="rounded border border-slate-100 p-3">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-slate-800">{r.title}</span>
+                        {r.source_url ? (
+                          <a
+                            href={r.source_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm font-medium text-blue-600 hover:underline"
+                          >
+                            {r.title}
+                          </a>
+                        ) : (
+                          <span className="text-sm font-medium text-slate-800">{r.title}</span>
+                        )}
                         <span className="text-xs text-slate-400">
                           {r.match_type} · {(r.score * 100).toFixed(0)}%
                         </span>

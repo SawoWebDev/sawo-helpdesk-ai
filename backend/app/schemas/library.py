@@ -85,6 +85,7 @@ class LibrarySearchResult(BaseModel):
     match_type: str
     source_id: int | None
     category_id: int | None
+    source_url: str | None
 
 
 class LibrarySearchResponse(BaseModel):
