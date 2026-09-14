@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { Fragment, FormEvent, useEffect, useState } from "react";
 import { apiDelete, apiGet, apiPost, getToken, ApiError } from "@/lib/api";
 import CategorySelect, { CategoryOption } from "@/components/admin/CategorySelect";
 import Pagination from "@/components/admin/Pagination";
@@ -20,6 +20,24 @@ interface LibrarySource {
   generated_faq_count: number;
   created_at: string;
   processed_at: string | null;
+}
+
+interface LibraryBatchSummary {
+  job_id: number;
+  source_count: number;
+  indexed_count: number;
+  failed_count: number;
+  pending_count: number;
+  category_id: number | null;
+  created_at: string;
+  generated_faq_count: number;
+  origin_label: string;
+}
+
+interface LibraryRow {
+  kind: "source" | "batch";
+  source: LibrarySource | null;
+  batch: LibraryBatchSummary | null;
 }
 
 interface Paginated<T> {
@@ -54,6 +72,54 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function SourceRow({
+  source: s,
+  categoryName,
+  onGenerateFaqs,
+  onDelete,
+  indent,
+}: {
+  source: LibrarySource;
+  categoryName: (id: number | null) => string;
+  onGenerateFaqs: (source: LibrarySource) => void;
+  onDelete: (source: LibrarySource) => void;
+  indent: boolean;
+}) {
+  return (
+    <tr className="border-t border-slate-100">
+      <td className={`max-w-xs truncate px-4 py-2 ${indent ? "pl-10" : ""}`} title={s.original_filename ?? s.origin_url ?? ""}>
+        {s.source_type === "file" ? s.original_filename : s.origin_url}
+      </td>
+      <td className="px-4 py-2 text-slate-500">{categoryName(s.category_id)}</td>
+      <td className="px-4 py-2 text-slate-500">{s.chunk_count}</td>
+      <td className="px-4 py-2 text-slate-500">{new Date(s.created_at).toLocaleDateString()}</td>
+      <td className="px-4 py-2">
+        <StatusBadge status={s.status} />
+        {s.status === "failed" && s.error_message && (
+          <p className="mt-1 max-w-xs truncate text-xs text-red-500" title={s.error_message}>
+            {s.error_message}
+          </p>
+        )}
+      </td>
+      <td className="px-4 py-2 text-slate-500">
+        {s.faq_generation_status === "processing" ? "Generating..." : s.generated_faq_count}
+      </td>
+      <td className="px-4 py-2 text-right">
+        <button
+          onClick={() => onGenerateFaqs(s)}
+          disabled={s.status !== "indexed"}
+          className="mr-3 text-blue-600 disabled:cursor-not-allowed disabled:text-slate-300"
+        >
+          Generate FAQs
+        </button>
+        <button onClick={() => onDelete(s)} className="text-red-600">
+          Delete
+        </button>
+      </td>
+    </tr>
+  );
+}
+
 // The backend wraps keyword matches in the excerpt with literal "**" markers
 // (FTS5 snippet()). Render those as <strong> without ever passing document
 // content through dangerouslySetInnerHTML, since excerpt text can come from
@@ -72,10 +138,14 @@ function HighlightedExcerpt({ text }: { text: string }) {
 export default function LibraryPage() {
   const [activeTab, setActiveTab] = useState<"file" | "url">("file");
   const [categories, setCategories] = useState<CategoryOption[]>([]);
-  const [sources, setSources] = useState<LibrarySource[]>([]);
+  const [rows, setRows] = useState<LibraryRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const pageSize = 20;
+
+  const [expandedJobId, setExpandedJobId] = useState<number | null>(null);
+  const [jobSources, setJobSources] = useState<LibrarySource[] | null>(null);
+  const [jobSourcesLoading, setJobSourcesLoading] = useState(false);
 
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -104,9 +174,34 @@ export default function LibraryPage() {
 
   async function loadSources() {
     const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
-    const data = await apiGet<Paginated<LibrarySource>>(`/api/library/sources?${params.toString()}`);
-    setSources(data.items);
+    const data = await apiGet<Paginated<LibraryRow>>(`/api/library/sources?${params.toString()}`);
+    setRows(data.items);
     setTotal(data.total);
+    // If a batch row is expanded, its child statuses may have changed too.
+    if (expandedJobId !== null) {
+      await loadJobSources(expandedJobId);
+    }
+  }
+
+  async function loadJobSources(jobId: number) {
+    setJobSourcesLoading(true);
+    try {
+      const data = await apiGet<LibrarySource[]>(`/api/library/jobs/${jobId}/sources`);
+      setJobSources(data);
+    } finally {
+      setJobSourcesLoading(false);
+    }
+  }
+
+  async function toggleJob(jobId: number) {
+    if (expandedJobId === jobId) {
+      setExpandedJobId(null);
+      setJobSources(null);
+      return;
+    }
+    setExpandedJobId(jobId);
+    setJobSources(null);
+    await loadJobSources(jobId);
   }
 
   useEffect(() => {
@@ -119,14 +214,20 @@ export default function LibraryPage() {
   }, [page]);
 
   // Any source still pending/processing gets polled so status updates
-  // (Indexed, FAQ counts) show up without a manual refresh.
+  // (Indexed, FAQ counts) show up without a manual refresh. A batch row
+  // counts as "in flight" via its own pending_count/failed_count-derived
+  // indexed_count check (source_count not yet fully indexed+failed).
   useEffect(() => {
-    const hasInFlight = sources.some((s) => s.status === "pending" || s.status === "processing");
+    const hasInFlight = rows.some((r) => {
+      if (r.kind === "source") return r.source?.status === "pending" || r.source?.status === "processing";
+      if (r.kind === "batch" && r.batch) return r.batch.pending_count > 0;
+      return false;
+    });
     if (!hasInFlight) return;
     const interval = setInterval(loadSources, 3000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sources]);
+  }, [rows]);
 
   function categoryName(id: number | null) {
     if (id === null) return "—";
@@ -268,6 +369,22 @@ export default function LibraryPage() {
   async function handleDelete(source: LibrarySource) {
     if (!confirm("Delete this Library source and its indexed content? Generated FAQs are kept.")) return;
     await apiDelete(`/api/library/sources/${source.id}`);
+    if (expandedJobId !== null) await loadJobSources(expandedJobId);
+    await loadSources();
+  }
+
+  async function handleDeleteBatch(batch: LibraryBatchSummary) {
+    if (
+      !confirm(
+        `Delete all ${batch.source_count} pages from this crawl (${batch.origin_label}) and their indexed content? Generated FAQs are kept.`
+      )
+    )
+      return;
+    await apiDelete(`/api/library/jobs/${batch.job_id}`);
+    if (expandedJobId === batch.job_id) {
+      setExpandedJobId(null);
+      setJobSources(null);
+    }
     await loadSources();
   }
 
@@ -523,40 +640,93 @@ export default function LibraryPage() {
             </tr>
           </thead>
           <tbody>
-            {sources.map((s) => (
-              <tr key={s.id} className="border-t border-slate-100">
-                <td className="max-w-xs truncate px-4 py-2" title={s.original_filename ?? s.origin_url ?? ""}>
-                  {s.source_type === "file" ? s.original_filename : s.origin_url}
-                </td>
-                <td className="px-4 py-2 text-slate-500">{categoryName(s.category_id)}</td>
-                <td className="px-4 py-2 text-slate-500">{s.chunk_count}</td>
-                <td className="px-4 py-2 text-slate-500">{new Date(s.created_at).toLocaleDateString()}</td>
-                <td className="px-4 py-2">
-                  <StatusBadge status={s.status} />
-                  {s.status === "failed" && s.error_message && (
-                    <p className="mt-1 max-w-xs truncate text-xs text-red-500" title={s.error_message}>
-                      {s.error_message}
-                    </p>
-                  )}
-                </td>
-                <td className="px-4 py-2 text-slate-500">
-                  {s.faq_generation_status === "processing" ? "Generating..." : s.generated_faq_count}
-                </td>
-                <td className="px-4 py-2 text-right">
-                  <button
-                    onClick={() => handleGenerateFaqs(s)}
-                    disabled={s.status !== "indexed"}
-                    className="mr-3 text-blue-600 disabled:cursor-not-allowed disabled:text-slate-300"
-                  >
-                    Generate FAQs
-                  </button>
-                  <button onClick={() => handleDelete(s)} className="text-red-600">
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {sources.length === 0 && (
+            {rows.map((row) => {
+              if (row.kind === "source" && row.source) {
+                const s = row.source;
+                return (
+                  <SourceRow
+                    key={`source-${s.id}`}
+                    source={s}
+                    categoryName={categoryName}
+                    onGenerateFaqs={handleGenerateFaqs}
+                    onDelete={handleDelete}
+                    indent={false}
+                  />
+                );
+              }
+              if (row.kind === "batch" && row.batch) {
+                const b = row.batch;
+                const isExpanded = expandedJobId === b.job_id;
+                return (
+                  <Fragment key={`batch-${b.job_id}`}>
+                    <tr onClick={() => toggleJob(b.job_id)} className="cursor-pointer border-t border-slate-100 hover:bg-slate-50">
+                      <td className="max-w-xs truncate px-4 py-2" title={b.origin_label}>
+                        <span className="mr-2 text-slate-400">{isExpanded ? "▾" : "▸"}</span>
+                        <span className="font-medium text-slate-800">{b.origin_label}</span>
+                        <span className="ml-2 text-xs text-slate-400">({b.source_count} pages)</span>
+                      </td>
+                      <td className="px-4 py-2 text-slate-500">{categoryName(b.category_id)}</td>
+                      <td className="px-4 py-2 text-slate-500">—</td>
+                      <td className="px-4 py-2 text-slate-500">{new Date(b.created_at).toLocaleDateString()}</td>
+                      <td className="px-4 py-2">
+                        <span className="rounded bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
+                          {b.indexed_count} indexed
+                        </span>
+                        {b.pending_count > 0 && (
+                          <span className="ml-1 rounded bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                            {b.pending_count} pending
+                          </span>
+                        )}
+                        {b.failed_count > 0 && (
+                          <span className="ml-1 rounded bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">
+                            {b.failed_count} failed
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-slate-500">{b.generated_faq_count}</td>
+                      <td className="px-4 py-2 text-right">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteBatch(b);
+                          }}
+                          className="text-red-600"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <tr className="border-t border-slate-100 bg-slate-50">
+                        <td colSpan={7} className="p-0">
+                          {jobSourcesLoading && (
+                            <p className="px-8 py-3 text-xs text-slate-400">Loading pages...</p>
+                          )}
+                          {!jobSourcesLoading && jobSources && (
+                            <table className="w-full text-sm">
+                              <tbody>
+                                {jobSources.map((s) => (
+                                  <SourceRow
+                                    key={`job-source-${s.id}`}
+                                    source={s}
+                                    categoryName={categoryName}
+                                    onGenerateFaqs={handleGenerateFaqs}
+                                    onDelete={handleDelete}
+                                    indent
+                                  />
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              }
+              return null;
+            })}
+            {rows.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-4 py-6 text-center text-slate-400">
                   No Library sources yet. Upload a document or crawl a URL above.

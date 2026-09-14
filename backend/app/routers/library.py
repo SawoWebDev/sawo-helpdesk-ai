@@ -10,16 +10,26 @@ from app.core.config import settings
 from app.core.deps import require_agent_or_admin
 from app.crud.category import create_category, get_category, get_category_by_name
 from app.crud.faq import list_faqs_by_source
-from app.crud.harvest import create_job, create_source, delete_source, get_source, list_sources
+from app.crud.harvest import (
+    create_job,
+    create_source,
+    delete_job_and_sources,
+    delete_source,
+    get_sources_by_job,
+    get_source,
+    list_sources_grouped,
+)
 from app.crud.vault import keyword_search_vault, semantic_search_vault
 from app.db.session import get_db
 from app.models.user import User
 from app.rag.pipeline import REFUSAL_SENTINEL, SYSTEM_PROMPT, _sanitize_text
 from app.schemas.common import PaginatedResponse
 from app.schemas.library import (
+    LibraryBatchSummaryOut,
     LibraryCrawlBatchRequest,
     LibraryCrawlBatchResponse,
     LibraryCrawlRequest,
+    LibraryRowOut,
     LibrarySearchRequest,
     LibrarySearchResult,
     LibrarySearchResponse,
@@ -67,13 +77,27 @@ async def list_all_sources(
     search: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    items, total = await list_sources(db, page, page_size, category_id, status_filter, search)
-    return PaginatedResponse(
-        items=[LibrarySourceOut.model_validate(item) for item in items],
-        total=total,
-        page=page,
-        page_size=page_size,
-    )
+    rows, total = await list_sources_grouped(db, page, page_size, category_id, status_filter, search)
+    items = []
+    for row in rows:
+        if row["is_batch"]:
+            items.append(LibraryRowOut(kind="batch", batch=LibraryBatchSummaryOut(**row)))
+        else:
+            items.append(LibraryRowOut(kind="source", source=LibrarySourceOut.model_validate(row["source"])))
+    return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.get("/jobs/{job_id}/sources", response_model=list[LibrarySourceOut])
+async def list_job_sources(job_id: int, db: AsyncSession = Depends(get_db)):
+    sources = await get_sources_by_job(db, job_id)
+    return [LibrarySourceOut.model_validate(s) for s in sources]
+
+
+@router.delete("/jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_library_job(job_id: int, db: AsyncSession = Depends(get_db)):
+    deleted = await delete_job_and_sources(db, job_id)
+    if deleted == 0:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Batch job not found or already empty")
 
 
 @router.post("/upload", response_model=LibrarySourceOut, status_code=status.HTTP_201_CREATED)

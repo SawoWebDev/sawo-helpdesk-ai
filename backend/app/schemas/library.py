@@ -29,6 +29,29 @@ class LibraryCrawlRequest(BaseModel):
     auto_generate_faqs: bool = True
 
 
+class LibraryBatchSummaryOut(BaseModel):
+    is_batch: bool = True
+    job_id: int
+    source_count: int
+    indexed_count: int
+    failed_count: int
+    pending_count: int
+    category_id: int | None
+    created_at: datetime
+    generated_faq_count: int
+    origin_label: str
+
+
+class LibraryRowOut(BaseModel):
+    """One row in the top-level Library sources table: either a single
+    source, or a summary of a batch crawl job. `kind` tells the frontend
+    which of `source` / `batch` is populated."""
+
+    kind: str  # "source" | "batch"
+    source: LibrarySourceOut | None = None
+    batch: LibraryBatchSummaryOut | None = None
+
+
 class SitemapDiscoverRequest(BaseModel):
     url: str
 

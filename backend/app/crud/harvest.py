@@ -84,6 +84,146 @@ async def list_sources(
     return list(result.scalars().all()), total
 
 
+BATCH_JOB_TYPES = ("web_crawl_batch",)
+
+
+async def list_sources_grouped(
+    db: AsyncSession,
+    page: int,
+    page_size: int,
+    category_id: int | None = None,
+    status_filter: str | None = None,
+    search: str | None = None,
+) -> tuple[list[dict], int]:
+    """Top-level listing where a sitemap batch crawl collapses into one
+    summary row (keyed by its HarvestJob) instead of one row per page, while
+    single-URL crawls and file uploads (job_id either None or a non-batch
+    job_type) stay as individual rows, exactly as before.
+
+    Grouping is done in Python rather than SQL: the dataset per admin is
+    small (hundreds, not millions, of harvest sources), and a portable
+    "is this job a batch" grouping key is awkward to express as a single
+    SQL aggregate across SQLite/other backends, so a straightforward Python
+    pass over the already-filtered rows is both simpler and fast enough."""
+    from sqlalchemy import or_
+
+    base = select(HarvestSource)
+
+    if category_id is not None:
+        base = base.where(HarvestSource.category_id == category_id)
+    if status_filter is not None:
+        base = base.where(HarvestSource.status == status_filter)
+    if search:
+        like = f"%{search}%"
+        base = base.where(or_(HarvestSource.original_filename.ilike(like), HarvestSource.origin_url.ilike(like)))
+
+    rows = (await db.execute(base.order_by(HarvestSource.created_at.desc()))).scalars().all()
+
+    groups: dict[int, dict] = {}
+    order: list[int] = []
+    job_cache: dict[int, HarvestJob | None] = {}
+
+    for source in rows:
+        job = None
+        if source.job_id is not None:
+            if source.job_id not in job_cache:
+                job_cache[source.job_id] = await get_job(db, source.job_id)
+            job = job_cache[source.job_id]
+
+        is_batch = job is not None and job.job_type in BATCH_JOB_TYPES
+        key = job.id if is_batch else source.id
+
+        if key not in groups:
+            order.append(key)
+            groups[key] = {
+                "is_batch": is_batch,
+                "job_id": job.id if job else None,
+                "job_type": job.job_type if job else None,
+                "created_at": source.created_at,
+                "sources": [],
+            }
+        groups[key]["sources"].append(source)
+        # Keep the group's created_at as the earliest (first-crawled) timestamp.
+        if source.created_at < groups[key]["created_at"]:
+            groups[key]["created_at"] = source.created_at
+
+    order.sort(key=lambda k: groups[k]["created_at"], reverse=True)
+
+    total = len(order)
+    page_keys = order[(page - 1) * page_size : (page - 1) * page_size + page_size]
+
+    results = []
+    for key in page_keys:
+        group = groups[key]
+        sources = group["sources"]
+        if group["is_batch"]:
+            statuses = [s.status for s in sources]
+            results.append(
+                {
+                    "is_batch": True,
+                    "job_id": group["job_id"],
+                    "source_count": len(sources),
+                    "indexed_count": statuses.count("indexed"),
+                    "failed_count": statuses.count("failed"),
+                    "pending_count": statuses.count("pending") + statuses.count("processing"),
+                    "category_id": sources[0].category_id if sources else None,
+                    "created_at": group["created_at"],
+                    "generated_faq_count": sum(s.generated_faq_count for s in sources),
+                    "origin_label": _common_origin_label(sources),
+                }
+            )
+        else:
+            results.append({"is_batch": False, "source": sources[0]})
+
+    return results, total
+
+
+def _common_origin_label(sources: list[HarvestSource]) -> str:
+    """A short label for a batch's parent row: the shared hostname if all
+    crawled URLs are on the same domain, else a generic count."""
+    hosts = set()
+    for s in sources:
+        if s.origin_url:
+            try:
+                import httpx
+
+                hosts.add(httpx.URL(s.origin_url).host)
+            except Exception:
+                pass
+    if len(hosts) == 1:
+        return next(iter(hosts))
+    return f"{len(sources)} pages"
+
+
+async def get_sources_by_job(db: AsyncSession, job_id: int) -> list[HarvestSource]:
+    result = await db.execute(
+        select(HarvestSource).where(HarvestSource.job_id == job_id).order_by(HarvestSource.origin_url)
+    )
+    return list(result.scalars().all())
+
+
 async def delete_source(db: AsyncSession, source: HarvestSource) -> None:
     await db.delete(source)
     await db.commit()
+
+
+async def delete_job_and_sources(db: AsyncSession, job_id: int) -> int:
+    """Deletes every source in a batch job (and their vault entries via the
+    same per-source cleanup as a single delete), then the job itself.
+    Returns how many sources were removed."""
+    from app.crud.vault import delete_vault_entry
+    from app.models.vault_entry import VaultEntry
+
+    sources = await get_sources_by_job(db, job_id)
+    for source in sources:
+        vault_result = await db.execute(select(VaultEntry).where(VaultEntry.source_id == source.id))
+        for entry in vault_result.scalars().all():
+            await delete_vault_entry(db, entry)
+        await db.delete(source)
+
+    job = await get_job(db, job_id)
+    if job is not None:
+        await db.delete(job)
+
+    await db.commit()
+    return len(sources)
