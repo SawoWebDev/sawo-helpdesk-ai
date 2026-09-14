@@ -133,7 +133,7 @@ docker compose -f deploy/podman-compose.yml --env-file .env up -d --build
 
 Then open:
 - Public chat: http://localhost:7000
-- Admin panel: http://localhost:7000/admin/login (`admin` / `changeme123` by
+- Admin panel: http://localhost:7000/admin/ (`admin` / `changeme123` by
   default — see `.env.example` / `INITIAL_ADMIN_*` to change them)
 - Backend API directly: http://localhost:7001
 
