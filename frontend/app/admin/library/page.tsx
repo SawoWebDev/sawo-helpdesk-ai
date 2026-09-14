@@ -89,6 +89,7 @@ export default function LibraryPage() {
   const [message, setMessage] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchAnswer, setSearchAnswer] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
   const [searching, setSearching] = useState(false);
 
@@ -211,8 +212,11 @@ export default function LibraryPage() {
     setSearching(true);
     setError(null);
     try {
-      const results = await apiPost<SearchResult[]>("/api/library/search", { query: searchQuery.trim() });
-      setSearchResults(results);
+      const data = await apiPost<{ answer: string | null; results: SearchResult[] }>("/api/library/search", {
+        query: searchQuery.trim(),
+      });
+      setSearchAnswer(data.answer);
+      setSearchResults(data.results);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Search failed");
     } finally {
@@ -340,6 +344,7 @@ export default function LibraryPage() {
             <button
               type="button"
               onClick={() => {
+                setSearchAnswer(null);
                 setSearchResults(null);
                 setSearchQuery("");
               }}
@@ -351,21 +356,38 @@ export default function LibraryPage() {
         </form>
 
         {searchResults && (
-          <div className="mt-4 flex flex-col gap-2">
-            {searchResults.length === 0 && <p className="text-sm text-slate-400">No matches found.</p>}
-            {searchResults.map((r) => (
-              <div key={r.entry_id} className="rounded border border-slate-100 p-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-slate-800">{r.title}</span>
-                  <span className="text-xs text-slate-400">
-                    {r.match_type} · {(r.score * 100).toFixed(0)}%
-                  </span>
-                </div>
-                <p className="mt-1 text-sm text-slate-600">
-                  <HighlightedExcerpt text={r.excerpt} />
-                </p>
+          <div className="mt-4 flex flex-col gap-4">
+            {searchAnswer && (
+              <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
+                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-blue-700">Answer</p>
+                <p className="text-sm text-slate-800">{searchAnswer}</p>
               </div>
-            ))}
+            )}
+            {!searchAnswer && (
+              <p className="text-sm text-slate-400">
+                {searchResults.length === 0
+                  ? "No matches found."
+                  : "No confident answer could be generated from the indexed content — showing raw matches below."}
+              </p>
+            )}
+            {searchResults.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Matched sources</p>
+                {searchResults.map((r) => (
+                  <div key={r.entry_id} className="rounded border border-slate-100 p-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-slate-800">{r.title}</span>
+                      <span className="text-xs text-slate-400">
+                        {r.match_type} · {(r.score * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm text-slate-600">
+                      <HighlightedExcerpt text={r.excerpt} />
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -5,7 +5,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, U
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.base import AIEngineError
-from app.ai.factory import get_embedding_engine
+from app.ai.factory import get_active_engine, get_embedding_engine
 from app.core.config import settings
 from app.core.deps import require_agent_or_admin
 from app.crud.category import create_category, get_category, get_category_by_name
@@ -14,14 +14,21 @@ from app.crud.harvest import create_job, create_source, delete_source, get_sourc
 from app.crud.vault import keyword_search_vault, semantic_search_vault
 from app.db.session import get_db
 from app.models.user import User
+from app.rag.pipeline import REFUSAL_SENTINEL, SYSTEM_PROMPT, _sanitize_text
 from app.schemas.common import PaginatedResponse
 from app.schemas.library import (
     LibraryCrawlRequest,
     LibrarySearchRequest,
     LibrarySearchResult,
+    LibrarySearchResponse,
     LibrarySourceOut,
 )
 from app.services.library_ingest import process_file_source, process_url_source, regenerate_faqs_for_source
+
+# How many top-ranked chunks (by combined keyword+semantic score) get sent to
+# the LLM to synthesize an answer from. Kept small since this is a
+# synchronous admin-facing search, not the async chat pipeline.
+SYNTHESIS_CONTEXT_LIMIT = 5
 
 router = APIRouter(prefix="/api/library", tags=["library"], dependencies=[Depends(require_agent_or_admin)])
 
@@ -137,7 +144,7 @@ async def crawl(
     return source
 
 
-@router.post("/search", response_model=list[LibrarySearchResult])
+@router.post("/search", response_model=LibrarySearchResponse)
 async def search(payload: LibrarySearchRequest, db: AsyncSession = Depends(get_db)):
     keyword_results = await keyword_search_vault(db, payload.query, limit=payload.limit)
 
@@ -170,18 +177,36 @@ async def search(payload: LibrarySearchRequest, db: AsyncSession = Depends(get_d
         entry = item["entry"]
         combined = 0.5 * item["keyword"] + 0.5 * item["semantic"]
         results.append(
-            LibrarySearchResult(
-                entry_id=entry.id,
-                title=entry.title,
-                excerpt=item["excerpt"],
-                score=combined,
-                match_type=item["match_type"],
-                source_id=entry.source_id,
-                category_id=entry.category_id,
+            (
+                LibrarySearchResult(
+                    entry_id=entry.id,
+                    title=entry.title,
+                    excerpt=item["excerpt"],
+                    score=combined,
+                    match_type=item["match_type"],
+                    source_id=entry.source_id,
+                    category_id=entry.category_id,
+                ),
+                entry,
             )
         )
-    results.sort(key=lambda r: r.score, reverse=True)
-    return results[: payload.limit]
+    results.sort(key=lambda pair: pair[0].score, reverse=True)
+    results = results[: payload.limit]
+
+    answer = None
+    if results:
+        context = "\n\n".join(
+            f"Topic: {entry.title}\n{entry.content}" for _result, entry in results[:SYNTHESIS_CONTEXT_LIMIT]
+        )
+        try:
+            engine = await get_active_engine(db)
+            generated = await engine.generate(SYSTEM_PROMPT, context, payload.query)
+            if generated and REFUSAL_SENTINEL not in generated:
+                answer = _sanitize_text(generated)
+        except AIEngineError:
+            pass
+
+    return LibrarySearchResponse(answer=answer, results=[result for result, _entry in results])
 
 
 @router.post("/sources/{source_id}/generate-faqs", status_code=status.HTTP_202_ACCEPTED)

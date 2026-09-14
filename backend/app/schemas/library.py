@@ -42,3 +42,8 @@ class LibrarySearchResult(BaseModel):
     match_type: str
     source_id: int | None
     category_id: int | None
+
+
+class LibrarySearchResponse(BaseModel):
+    answer: str | None
+    results: list[LibrarySearchResult]

@@ -142,18 +142,28 @@ export default function SettingsPage() {
         </div>
       </form>
 
-      <div className="mt-8 max-w-3xl">
+      <div className="mt-8">
         <h2 className="mb-3 text-sm font-semibold text-slate-700">AI Usage Monitor</h2>
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+          <table className="w-full min-w-[720px] text-sm">
             <thead className="bg-slate-50 text-left text-slate-500">
               <tr>
-                <th className="px-4 py-2">Model</th>
-                <th className="px-4 py-2">Requests today</th>
-                <th className="px-4 py-2">Tokens today</th>
-                <th className="px-4 py-2">Requests (all time)</th>
-                <th className="px-4 py-2">Tokens (all time)</th>
-                <th className="px-4 py-2">Cost (all time)</th>
+                <th className="px-4 py-2" rowSpan={2}>
+                  Model
+                </th>
+                <th className="border-l border-slate-200 px-4 py-1 text-center" colSpan={2}>
+                  Today
+                </th>
+                <th className="border-l border-slate-200 px-4 py-1 text-center" colSpan={3}>
+                  All time
+                </th>
+              </tr>
+              <tr className="text-xs">
+                <th className="border-l border-slate-200 px-4 py-1 font-normal">Requests</th>
+                <th className="px-4 py-1 font-normal">Tokens</th>
+                <th className="border-l border-slate-200 px-4 py-1 font-normal">Requests</th>
+                <th className="px-4 py-1 font-normal">Tokens</th>
+                <th className="px-4 py-1 font-normal">Cost</th>
               </tr>
             </thead>
             <tbody>
@@ -164,13 +174,13 @@ export default function SettingsPage() {
                     className="cursor-pointer border-t border-slate-100 hover:bg-slate-50"
                   >
                     <td className="px-4 py-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-400">{expandedModel === m.model ? "▾" : "▸"}</span>
-                        <span className="max-w-xs truncate font-medium text-slate-800" title={m.model}>
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="shrink-0 text-slate-400">{expandedModel === m.model ? "▾" : "▸"}</span>
+                        <span className="truncate font-medium text-slate-800" title={m.model}>
                           {m.model}
                         </span>
                         <span
-                          className={`rounded px-2 py-0.5 text-xs font-medium ${
+                          className={`shrink-0 rounded px-2 py-0.5 text-xs font-medium ${
                             m.is_free ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-600"
                           }`}
                         >
@@ -178,9 +188,9 @@ export default function SettingsPage() {
                         </span>
                       </div>
                     </td>
-                    <td className="px-4 py-2">{m.requests_today}</td>
+                    <td className="border-l border-slate-100 px-4 py-2">{m.requests_today}</td>
                     <td className="px-4 py-2">{m.tokens_today.toLocaleString()}</td>
-                    <td className="px-4 py-2">{m.requests_total}</td>
+                    <td className="border-l border-slate-100 px-4 py-2">{m.requests_total}</td>
                     <td className="px-4 py-2">{m.tokens_total.toLocaleString()}</td>
                     <td className="px-4 py-2">{formatCost(m.cost_total_usd)}</td>
                   </tr>
@@ -199,13 +209,13 @@ export default function SettingsPage() {
                           <p className="text-xs text-slate-400">No usage recorded yet.</p>
                         )}
                         {!dailyLoading && dailyUsage && dailyUsage.length > 0 && (
-                          <table className="w-full text-xs">
+                          <table className="w-full max-w-md text-xs">
                             <thead className="text-left text-slate-500">
                               <tr>
-                                <th className="py-1 pr-4">Day</th>
-                                <th className="py-1 pr-4">Requests</th>
-                                <th className="py-1 pr-4">Tokens</th>
-                                <th className="py-1 pr-4">Cost</th>
+                                <th className="py-1 pr-4 font-normal">Day</th>
+                                <th className="py-1 pr-4 font-normal">Requests</th>
+                                <th className="py-1 pr-4 font-normal">Tokens</th>
+                                <th className="py-1 pr-4 font-normal">Cost</th>
                               </tr>
                             </thead>
                             <tbody>
