@@ -2,15 +2,15 @@
 
 A helpdesk chat system grounded strictly in an internal knowledge base via
 Retrieval-Augmented Generation (RAG). Public chat frontend (Next.js) + admin/agent
-backend (FastAPI) + PostgreSQL/pgvector for storage and similarity search + Ollama
-(default) or OpenRouter for embeddings/generation.
+backend (FastAPI) + PostgreSQL/pgvector for storage and similarity search +
+OpenRouter for embeddings/generation.
 
 ## Stack
 
 - Frontend: Next.js (App Router) + Tailwind CSS
 - Backend: Python + FastAPI (async, SQLAlchemy + psycopg/asyncpg)
 - Database: PostgreSQL + `pgvector`
-- AI engine: Ollama (default) or OpenRouter — switchable via admin Settings, no code change
+- AI engine: OpenRouter — model and embedding model configurable via admin Settings, no code change
 - File storage: local disk (`/uploads`), no cloud storage
 - Containerization: Podman Compose (primary), Docker Compose (compatible)
 
@@ -28,15 +28,7 @@ backend (FastAPI) + PostgreSQL/pgvector for storage and similarity search + Olla
    podman compose -f deploy/podman-compose.yml --env-file .env up -d --build
    ```
 
-3. Wait for the `ollama-init` one-shot container to finish pulling
-   `nomic-embed-text` and `llama3` (first boot only — this can take several
-   minutes depending on your connection):
-
-   ```sh
-   podman logs -f helpdesk_ollama-init_1
-   ```
-
-4. Open the app:
+3. Open the app:
    - Public chat: http://localhost:3000
    - Admin panel: http://localhost:3000/admin/login
 
@@ -93,19 +85,20 @@ netsh interface portproxy delete v4tov4 listenaddress=0.0.0.0 listenport=3000
 netsh interface portproxy delete v4tov4 listenaddress=0.0.0.0 listenport=8001
 ```
 
-## Switching AI Engines
+## AI Engine (OpenRouter)
 
-By default the system uses **Ollama** for both embeddings and generation. To use
-**OpenRouter** for generation instead (embeddings always stay on Ollama's
-`nomic-embed-text` to keep vector dimensions consistent):
+The system uses **OpenRouter** for both generation and embeddings, via a single
+API key:
 
 1. Log in to the admin panel as an admin user.
 2. Go to **Settings**.
-3. Set **Active AI Engine** to `openrouter`, provide an API key and model
-   string (default suggestion: `meta-llama/llama-3-70b-instruct`), and save.
+3. Provide an **OpenRouter API Key**, a generation model (default suggestion:
+   `meta-llama/llama-3-70b-instruct`), and an embedding model (default:
+   `openai/text-embedding-3-small`), then save.
 
 No code changes or redeploys are required — the change takes effect on the next
-chat request.
+chat request. Changing the embedding model requires re-indexing (see below),
+since existing vectors were produced by the previous model.
 
 ## Off-Topic Chatter vs. Unanswered Questions
 
@@ -131,9 +124,9 @@ Unanswered Questions queue, which is easy for an agent to dismiss.
 
 ## Re-indexing
 
-If you change the embedding model (`Ollama Embedding Model` in Settings), all
-existing FAQ entries must be re-embedded so their vectors stay consistent with
-new queries. Use the **Re-index All FAQs** button on the Settings page, or call:
+If you change the embedding model (`OpenRouter Embedding Model` in Settings), all
+existing FAQ and vault entries must be re-embedded so their vectors stay consistent
+with new queries. Use the **Re-index All FAQs** button on the Settings page, or call:
 
 ```
 POST /api/admin/reindex

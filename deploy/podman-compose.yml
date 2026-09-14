@@ -19,28 +19,6 @@ services:
       timeout: 5s
       retries: 10
 
-  ollama:
-    image: docker.io/ollama/ollama:latest
-    restart: unless-stopped
-    volumes:
-      - ollama_data:/root/.ollama
-    ports:
-      - "11434:11434"
-
-  ollama-init:
-    image: docker.io/ollama/ollama:latest
-    depends_on:
-      - ollama
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        until ollama --host ollama:11434 list > /dev/null 2>&1; do sleep 2; done
-        OLLAMA_HOST=http://ollama:11434 ollama pull nomic-embed-text
-        OLLAMA_HOST=http://ollama:11434 ollama pull llama3
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-    restart: "no"
-
   backend:
     build:
       context: ../backend
@@ -48,15 +26,12 @@ services:
     restart: unless-stopped
     depends_on:
       - db
-      - ollama
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-helpdesk}:${POSTGRES_PASSWORD:-helpdesk}@db:5432/${POSTGRES_DB:-helpdesk}
       JWT_SECRET: ${JWT_SECRET:-change-me}
       INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-changeme123}
       INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-admin@example.com}
-      OLLAMA_BASE_URL: http://ollama:11434
-      DEFAULT_AI_ENGINE: ${DEFAULT_AI_ENGINE:-ollama}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       UPLOAD_DIR: /app/uploads
       CORS_ORIGINS: '["http://localhost:3000"]'
@@ -81,5 +56,4 @@ services:
 
 volumes:
   db_data:
-  ollama_data:
   uploads_data:

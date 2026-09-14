@@ -28,14 +28,10 @@ class Settings(BaseSettings):
     max_vault_entry_chars: int = 50_000
 
     # AI engine defaults (used only for first-boot Settings seed; live config is in DB)
-    ollama_base_url: str = "http://localhost:11434"
-    ollama_embedding_model: str = "nomic-embed-text"
-    ollama_generation_model: str = "llama3"
-    ollama_vision_model: str = "llava"
     openrouter_api_key: str = ""
     openrouter_model: str = "meta-llama/llama-3-70b-instruct"
+    openrouter_embedding_model: str = "openai/text-embedding-3-small"
 
-    default_ai_engine: str = "ollama"
     default_fallback_message: str = (
         "Thanks for your question — we've taken note of it and will follow up "
         "once we have an answer."
@@ -51,7 +47,7 @@ class Settings(BaseSettings):
         "what can I help you with?"
     )
 
-    embedding_dimensions: int = 768
+    embedding_dimensions: int = 1536
 
     cors_origins: list[str] = ["http://localhost:3000"]
 

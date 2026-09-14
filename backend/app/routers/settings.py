@@ -15,13 +15,9 @@ MASK = "********"
 def _to_out(values: dict[str, str]) -> SettingsOut:
     api_key = values.get(keys.OPENROUTER_API_KEY, "")
     return SettingsOut(
-        ai_engine=values.get(keys.AI_ENGINE, "ollama"),
         openrouter_api_key=MASK if api_key else "",
         openrouter_model=values.get(keys.OPENROUTER_MODEL, ""),
-        ollama_base_url=values.get(keys.OLLAMA_BASE_URL, ""),
-        ollama_generation_model=values.get(keys.OLLAMA_GENERATION_MODEL, ""),
-        ollama_embedding_model=values.get(keys.OLLAMA_EMBEDDING_MODEL, ""),
-        ollama_vision_model=values.get(keys.OLLAMA_VISION_MODEL, ""),
+        openrouter_embedding_model=values.get(keys.OPENROUTER_EMBEDDING_MODEL, ""),
         fallback_message=values.get(keys.FALLBACK_MESSAGE, ""),
         confidence_threshold=float(values.get(keys.CONFIDENCE_THRESHOLD, "0.75")),
         top_k=int(values.get(keys.TOP_K, "5")),
@@ -41,12 +37,8 @@ async def update_settings(payload: SettingsUpdate, db: AsyncSession = Depends(ge
     updates: dict[str, str] = {}
 
     field_to_key = {
-        "ai_engine": keys.AI_ENGINE,
         "openrouter_model": keys.OPENROUTER_MODEL,
-        "ollama_base_url": keys.OLLAMA_BASE_URL,
-        "ollama_generation_model": keys.OLLAMA_GENERATION_MODEL,
-        "ollama_embedding_model": keys.OLLAMA_EMBEDDING_MODEL,
-        "ollama_vision_model": keys.OLLAMA_VISION_MODEL,
+        "openrouter_embedding_model": keys.OPENROUTER_EMBEDDING_MODEL,
         "fallback_message": keys.FALLBACK_MESSAGE,
         "confidence_threshold": keys.CONFIDENCE_THRESHOLD,
         "top_k": keys.TOP_K,

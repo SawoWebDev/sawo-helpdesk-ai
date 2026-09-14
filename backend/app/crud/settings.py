@@ -6,13 +6,9 @@ from app.core.config import settings as env_settings
 from app.models.setting import Setting
 
 DEFAULTS: dict[str, str] = {
-    keys.AI_ENGINE: env_settings.default_ai_engine,
     keys.OPENROUTER_API_KEY: env_settings.openrouter_api_key,
     keys.OPENROUTER_MODEL: env_settings.openrouter_model,
-    keys.OLLAMA_BASE_URL: env_settings.ollama_base_url,
-    keys.OLLAMA_GENERATION_MODEL: env_settings.ollama_generation_model,
-    keys.OLLAMA_EMBEDDING_MODEL: env_settings.ollama_embedding_model,
-    keys.OLLAMA_VISION_MODEL: env_settings.ollama_vision_model,
+    keys.OPENROUTER_EMBEDDING_MODEL: env_settings.openrouter_embedding_model,
     keys.FALLBACK_MESSAGE: env_settings.default_fallback_message,
     keys.CONFIDENCE_THRESHOLD: str(env_settings.default_confidence_threshold),
     keys.TOP_K: str(env_settings.default_top_k),

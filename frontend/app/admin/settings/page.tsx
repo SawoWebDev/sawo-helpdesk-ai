@@ -4,13 +4,9 @@ import { FormEvent, useEffect, useState } from "react";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 
 interface Settings {
-  ai_engine: string;
   openrouter_api_key: string;
   openrouter_model: string;
-  ollama_base_url: string;
-  ollama_generation_model: string;
-  ollama_embedding_model: string;
-  ollama_vision_model: string;
+  openrouter_embedding_model: string;
   fallback_message: string;
   confidence_threshold: number;
   top_k: number;
@@ -40,12 +36,8 @@ export default function SettingsPage() {
     setMessage(null);
     try {
       const payload: Record<string, unknown> = {
-        ai_engine: settings.ai_engine,
         openrouter_model: settings.openrouter_model,
-        ollama_base_url: settings.ollama_base_url,
-        ollama_generation_model: settings.ollama_generation_model,
-        ollama_embedding_model: settings.ollama_embedding_model,
-        ollama_vision_model: settings.ollama_vision_model,
+        openrouter_embedding_model: settings.openrouter_embedding_model,
         fallback_message: settings.fallback_message,
         confidence_threshold: settings.confidence_threshold,
         top_k: settings.top_k,
@@ -84,77 +76,32 @@ export default function SettingsPage() {
 
       <form onSubmit={handleSubmit} className="flex max-w-xl flex-col gap-4">
         <div className="flex flex-col gap-1">
-          <label className="text-sm font-medium text-slate-700">Active AI Engine</label>
-          <select
-            value={settings.ai_engine}
-            onChange={(e) => setSettings({ ...settings, ai_engine: e.target.value })}
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
-          >
-            <option value="ollama">Ollama</option>
-            <option value="openrouter">OpenRouter</option>
-          </select>
-        </div>
-
-        {settings.ai_engine === "openrouter" && (
-          <>
-            <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium text-slate-700">OpenRouter API Key</label>
-              <input
-                type="password"
-                value={apiKeyInput}
-                onChange={(e) => setApiKeyInput(e.target.value)}
-                placeholder={settings.openrouter_api_key || "Not set"}
-                className="rounded border border-slate-300 px-3 py-2 text-sm"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium text-slate-700">OpenRouter Model</label>
-              <input
-                value={settings.openrouter_model}
-                onChange={(e) => setSettings({ ...settings, openrouter_model: e.target.value })}
-                className="rounded border border-slate-300 px-3 py-2 text-sm"
-              />
-            </div>
-          </>
-        )}
-
-        <div className="flex flex-col gap-1">
-          <label className="text-sm font-medium text-slate-700">Ollama Base URL</label>
+          <label className="text-sm font-medium text-slate-700">OpenRouter API Key</label>
           <input
-            value={settings.ollama_base_url}
-            onChange={(e) => setSettings({ ...settings, ollama_base_url: e.target.value })}
+            type="password"
+            value={apiKeyInput}
+            onChange={(e) => setApiKeyInput(e.target.value)}
+            placeholder={settings.openrouter_api_key || "Not set"}
             className="rounded border border-slate-300 px-3 py-2 text-sm"
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-sm font-medium text-slate-700">Ollama Generation Model</label>
+          <label className="text-sm font-medium text-slate-700">OpenRouter Model</label>
           <input
-            value={settings.ollama_generation_model}
-            onChange={(e) => setSettings({ ...settings, ollama_generation_model: e.target.value })}
+            value={settings.openrouter_model}
+            onChange={(e) => setSettings({ ...settings, openrouter_model: e.target.value })}
             className="rounded border border-slate-300 px-3 py-2 text-sm"
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-sm font-medium text-slate-700">Ollama Embedding Model</label>
+          <label className="text-sm font-medium text-slate-700">OpenRouter Embedding Model</label>
           <input
-            value={settings.ollama_embedding_model}
-            onChange={(e) => setSettings({ ...settings, ollama_embedding_model: e.target.value })}
+            value={settings.openrouter_embedding_model}
+            onChange={(e) => setSettings({ ...settings, openrouter_embedding_model: e.target.value })}
             className="rounded border border-slate-300 px-3 py-2 text-sm"
           />
           <p className="text-xs text-slate-400">
-            Changing this requires re-indexing all FAQ entries below.
-          </p>
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-sm font-medium text-slate-700">Ollama Vision Model (OCR)</label>
-          <input
-            value={settings.ollama_vision_model}
-            onChange={(e) => setSettings({ ...settings, ollama_vision_model: e.target.value })}
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
-          />
-          <p className="text-xs text-slate-400">
-            Used only for extracting text from uploaded images (Knowledge Harvester). Always
-            runs via Ollama regardless of the active AI engine above.
+            Changing this requires re-indexing all FAQ and vault entries below.
           </p>
         </div>
 
