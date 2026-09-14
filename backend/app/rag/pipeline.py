@@ -8,6 +8,7 @@ from app.ai.base import AIEngineError
 from app.ai.factory import get_active_engine, get_embedding_engine
 from app.core import setting_keys as keys
 from app.crud.category import get_or_create_other_category
+from app.crud.faq import create_faq
 from app.crud.settings import get_all_settings
 from app.db.vec_store import FAQ_VEC_TABLE, VAULT_VEC_TABLE, knn_search
 from app.models.chat_log import ChatLog
@@ -15,6 +16,7 @@ from app.models.faq import FAQEntry
 from app.models.unanswered import UnansweredQuestion
 from app.models.vault_entry import VaultEntry
 from app.rag.filler import is_filler
+from app.rag.reindex import embed_entry
 
 REFUSAL_SENTINEL = "NOT_FOUND"
 
@@ -218,7 +220,8 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
     # must not block a genuinely better Library answer, so anything below
     # that bar falls through to the merged FAQ+Library pool, exactly like
     # before, letting the LLM pick the best context from both tiers.
-    if faq_rows and faq_rows[0][1] >= threshold:
+    faq_was_primary = bool(faq_rows and faq_rows[0][1] >= threshold)
+    if faq_was_primary:
         rows = faq_rows[:top_k]
     else:
         # Only drop candidates below off_topic_threshold — that floor
@@ -289,6 +292,30 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
     )
     db.add(chat_log)
     await db.commit()
+
+    # Auto-promote every real Library-grounded answer straight into FAQ,
+    # published immediately — no separate review step. Only when the answer
+    # actually drew on Vault content and FAQ wasn't already the primary-tier
+    # answer (a weak FAQ row can still ride along in the merged context pool
+    # without being why the question was answered — matched_faq_ids alone
+    # isn't a reliable "already covered by FAQ" signal), so a question FAQ
+    # already answers outright doesn't spawn a duplicate row on every repeat.
+    if matched_vault_ids and not faq_was_primary:
+        try:
+            faq_entry = await create_faq(
+                db,
+                question=question,
+                answer=generated,
+                category_id=None,
+                image_urls=list(dict.fromkeys(image_urls)),
+                reference_urls=list(dict.fromkeys(reference_urls)),
+                source="chat_auto",
+                source_label="Auto-saved from chat",
+            )
+            await embed_entry(db, faq_entry)
+            await db.commit()
+        except AIEngineError:
+            pass
 
     return RagResult(
         answer=generated,
