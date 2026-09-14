@@ -33,6 +33,15 @@ RELEVANCE_SYSTEM_PROMPT = (
     "support. Respond with nothing except YES or NO."
 )
 
+OFF_TOPIC_SYSTEM_PROMPT = (
+    "You are a helpdesk assistant. The user's message is small talk, a greeting, "
+    "or otherwise unrelated to product/technical support. Write a brief, warm, "
+    "natural one- or two-sentence reply that acknowledges what they said, then "
+    "steers the conversation back to product, account, or technical support "
+    "topics. Do not answer questions outside product/support, do not make up "
+    "product facts, and do not be repetitive or robotic."
+)
+
 
 async def _is_on_topic(engine, question: str) -> bool:
     """Ask the LLM whether the question is even in-scope (product/technical
@@ -67,10 +76,11 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
     off_topic_threshold = float(settings_values[keys.OFF_TOPIC_THRESHOLD])
     off_topic_message = settings_values[keys.OFF_TOPIC_MESSAGE]
 
-    if is_filler(question):
-        return await _off_topic(db, question, off_topic_message, None)
-
     engine = await get_active_engine(db)
+
+    if is_filler(question):
+        return await _off_topic(db, engine, question, off_topic_message, None)
+
     embedding_engine = await get_embedding_engine(db)
 
     try:
@@ -110,7 +120,7 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
 
     if not rows:
         if not await _is_on_topic(engine, question):
-            return await _off_topic(db, question, off_topic_message, None)
+            return await _off_topic(db, engine, question, off_topic_message, None)
         return await _fallback(db, question, fallback_message, None, engine_used="none")
 
     (_best_kind, _best_entry), best_similarity = rows[0]
@@ -121,7 +131,7 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
         # with a small knowledge base. Only here do we pay for an LLM classify
         # call — a clear FAQ match above threshold never hits this path.
         if best_similarity < off_topic_threshold or not await _is_on_topic(engine, question):
-            return await _off_topic(db, question, off_topic_message, best_similarity)
+            return await _off_topic(db, engine, question, off_topic_message, best_similarity)
         return await _fallback(
             db, question, fallback_message, best_similarity, engine_used="none"
         )
@@ -181,6 +191,7 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
 
 async def _off_topic(
     db: AsyncSession,
+    engine,
     question: str,
     off_topic_message: str,
     confidence_score: float | None,
@@ -188,23 +199,34 @@ async def _off_topic(
     """For chatter/small talk with no meaningful match to any FAQ (below the
     off-topic threshold): redirect to product/technical support without
     logging an UnansweredQuestion, since there's no real support question for
-    an agent to review."""
+    an agent to review. Tries to generate a natural, non-repetitive reply to
+    what was actually said; falls back to the fixed configured message (still
+    on-topic, still safe) if that call fails."""
+    try:
+        answer = await engine.generate(OFF_TOPIC_SYSTEM_PROMPT, "", question)
+        if not answer:
+            answer = off_topic_message
+        engine_used = engine.name
+    except AIEngineError:
+        answer = off_topic_message
+        engine_used = "none"
+
     chat_log = ChatLog(
         question_text=question,
-        answer_text=off_topic_message,
+        answer_text=answer,
         matched_faq_ids=[],
         confidence_score=confidence_score,
-        engine_used="none",
+        engine_used=engine_used,
     )
     db.add(chat_log)
     await db.commit()
 
     return RagResult(
-        answer=off_topic_message,
+        answer=answer,
         is_fallback=True,
         confidence_score=confidence_score,
         matched_faq_ids=[],
-        engine_used="none",
+        engine_used=engine_used,
     )
 
 
