@@ -11,7 +11,6 @@ interface LibrarySource {
   origin_url: string | null;
   original_filename: string | null;
   category_id: number | null;
-  crawl_depth: number | null;
   status: "pending" | "processing" | "indexed" | "failed";
   error_message: string | null;
   extracted_char_count: number | null;
@@ -84,7 +83,6 @@ export default function LibraryPage() {
 
   const [file, setFile] = useState<File | null>(null);
   const [crawlUrl, setCrawlUrl] = useState("");
-  const [crawlDepth, setCrawlDepth] = useState(0);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -176,7 +174,6 @@ export default function LibraryPage() {
         url: crawlUrl.trim(),
         category_id: newCategoryName.trim() ? null : categoryId,
         new_category_name: newCategoryName.trim() || null,
-        crawl_depth: crawlDepth,
         auto_generate_faqs: autoGenerateFaqs,
       });
       setMessage(`Queued crawl for ${crawlUrl.trim()}`);
@@ -311,17 +308,6 @@ export default function LibraryPage() {
                 onChange={(e) => setCrawlUrl(e.target.value)}
                 placeholder="https://example.com/docs"
                 className="w-72 rounded border border-slate-300 px-3 py-2 text-sm"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-slate-500">Crawl depth</label>
-              <input
-                type="number"
-                min={0}
-                max={3}
-                value={crawlDepth}
-                onChange={(e) => setCrawlDepth(Number(e.target.value))}
-                className="w-20 rounded border border-slate-300 px-3 py-2 text-sm"
               />
             </div>
             <button

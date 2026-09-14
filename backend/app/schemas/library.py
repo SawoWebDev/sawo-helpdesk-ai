@@ -11,7 +11,6 @@ class LibrarySourceOut(BaseModel):
     origin_url: str | None
     original_filename: str | None
     category_id: int | None
-    crawl_depth: int | None
     status: str
     error_message: str | None
     extracted_char_count: int | None
@@ -27,7 +26,6 @@ class LibraryCrawlRequest(BaseModel):
     url: str
     category_id: int | None = None
     new_category_name: str | None = None
-    crawl_depth: int = Field(default=0, ge=0, le=3)
     auto_generate_faqs: bool = True
 
 

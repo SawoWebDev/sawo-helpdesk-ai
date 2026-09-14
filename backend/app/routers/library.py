@@ -123,14 +123,13 @@ async def crawl(
 
     resolved_category_id = await _resolve_category(db, payload.category_id, payload.new_category_name)
 
-    job = await create_job(db, job_type="web_crawl", config={"url": payload.url, "depth": payload.crawl_depth}, created_by_id=user.id)
+    job = await create_job(db, job_type="web_crawl", config={"url": payload.url}, created_by_id=user.id)
     source = await create_source(
         db,
         job_id=job.id,
         source_type="url",
         category_id=resolved_category_id,
         origin_url=payload.url.strip(),
-        crawl_depth=payload.crawl_depth,
         auto_generate_faqs=payload.auto_generate_faqs,
     )
 

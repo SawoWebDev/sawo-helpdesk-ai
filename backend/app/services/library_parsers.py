@@ -93,17 +93,6 @@ async def fetch_url(url: str) -> tuple[str, str]:
         raise ParseError(f"Failed to fetch URL: {exc}") from exc
 
 
-def extract_links(html: str, base_url: str) -> list[str]:
-    soup = BeautifulSoup(html, "lxml")
-    links: list[str] = []
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        absolute = httpx.URL(base_url).join(href)
-        if absolute.scheme in ("http", "https"):
-            links.append(str(absolute.copy_with(fragment=None)))
-    return links
-
-
 def extract_text_for_file(filename: str, data: bytes) -> str:
     ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
     if ext == "pdf":

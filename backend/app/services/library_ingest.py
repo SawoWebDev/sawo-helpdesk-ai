@@ -22,14 +22,11 @@ from app.services.chunking import chunk_text
 from app.services.library_parsers import (
     ParseError,
     extract_html_text,
-    extract_links,
     extract_text_for_file,
     fetch_url,
 )
 
 logger = logging.getLogger(__name__)
-
-MAX_CRAWL_PAGES = 25
 
 
 async def _mark_failed(db: AsyncSession, source: HarvestSource, message: str) -> None:
@@ -59,6 +56,11 @@ async def process_file_source(source_id: int) -> None:
 
 
 async def process_url_source(source_id: int) -> None:
+    """Fetches and indexes exactly the one URL on the source — no link
+    following. Simpler and more predictable than crawling multiple hops:
+    the admin picks exactly which pages go into the Library by giving each
+    one its own URL, rather than the crawler guessing which linked pages are
+    relevant."""
     async with AsyncSessionLocal() as db:
         source = await db.get(HarvestSource, source_id)
         if source is None:
@@ -66,33 +68,14 @@ async def process_url_source(source_id: int) -> None:
         source.status = "processing"
         await db.commit()
 
-        depth = source.crawl_depth or 0
-        visited: set[str] = set()
-        to_visit: list[tuple[str, int]] = [(source.origin_url, 0)]
-        combined_text_parts: list[str] = []
-
         try:
-            while to_visit and len(visited) < MAX_CRAWL_PAGES:
-                url, current_depth = to_visit.pop(0)
-                if url in visited:
-                    continue
-                visited.add(url)
-                html, final_url = await fetch_url(url)
-                page_text = extract_html_text(html)
-                if page_text:
-                    combined_text_parts.append(f"# {final_url}\n\n{page_text}")
-
-                if current_depth < depth:
-                    for link in extract_links(html, final_url):
-                        if link not in visited and link.startswith(source.origin_url.split("//")[0]):
-                            to_visit.append((link, current_depth + 1))
+            html, final_url = await fetch_url(source.origin_url)
         except ParseError as exc:
-            if not combined_text_parts:
-                await _mark_failed(db, source, str(exc))
-                return
+            await _mark_failed(db, source, str(exc))
+            return
 
-        text = "\n\n".join(combined_text_parts)
-        await _ingest_text(db, source, text, title_prefix=source.origin_url or "Web page")
+        text = extract_html_text(html)
+        await _ingest_text(db, source, text, title_prefix=final_url or source.origin_url or "Web page")
 
 
 async def _ingest_text(db: AsyncSession, source: HarvestSource, text: str, title_prefix: str) -> None:
