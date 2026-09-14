@@ -132,10 +132,10 @@ docker compose -f deploy/podman-compose.yml --env-file .env up -d --build
 ```
 
 Then open:
-- Public chat: http://localhost:3000
-- Admin panel: http://localhost:3000/admin/login (`admin` / `changeme123` by
+- Public chat: http://localhost:7000
+- Admin panel: http://localhost:7000/admin/login (`admin` / `changeme123` by
   default — see `.env.example` / `INITIAL_ADMIN_*` to change them)
-- Backend API directly: http://localhost:8001
+- Backend API directly: http://localhost:7001
 
 **Before chat/embeddings will work**, set an OpenRouter API key — either put
 `OPENROUTER_API_KEY=...` in `.env` before the first build, or log in as admin
@@ -195,29 +195,29 @@ enough for other devices on the network to reach the app via the host's IP.
 **However, Podman Desktop on Windows runs inside a WSL2 VM, and its port
 forwarder (gvproxy) only binds `127.0.0.1` on the Windows host — not the LAN-
 facing network adapter** — regardless of what `podman port` reports. The
-symptom: `http://localhost:3000` works fine on the host, but
-`http://<host-lan-ip>:3000` refuses to connect from another device. (This is a
+symptom: `http://localhost:7000` works fine on the host, but
+`http://<host-lan-ip>:7000` refuses to connect from another device. (This is a
 Podman-on-Windows/WSL2 limitation, not something specific to this app; Docker
 Desktop on Windows and native Linux Podman don't have it.)
 
 To fix it, forward the LAN interface to loopback with a Windows port proxy.
 Run these in an **Administrator PowerShell** window (adjust the ports if you
-changed them from the Compose defaults — `3000` for frontend, `8001` for
+changed them from the Compose defaults — `7000` for frontend, `7001` for
 backend):
 
 ```powershell
 # Forward LAN traffic to the loopback-bound container ports
-netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=3000 connectaddress=127.0.0.1 connectport=3000
-netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=8001 connectaddress=127.0.0.1 connectport=8001
+netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=7000 connectaddress=127.0.0.1 connectport=7000
+netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=7001 connectaddress=127.0.0.1 connectport=7001
 
 # Allow inbound traffic on those ports through Windows Firewall
-New-NetFirewallRule -DisplayName "Helpdesk Frontend" -Direction Inbound -Action Allow -LocalPort 3000 -Protocol TCP
-New-NetFirewallRule -DisplayName "Helpdesk Backend" -Direction Inbound -Action Allow -LocalPort 8001 -Protocol TCP
+New-NetFirewallRule -DisplayName "Helpdesk Frontend" -Direction Inbound -Action Allow -LocalPort 7000 -Protocol TCP
+New-NetFirewallRule -DisplayName "Helpdesk Backend" -Direction Inbound -Action Allow -LocalPort 7001 -Protocol TCP
 ```
 
 Find your machine's LAN IP with `ipconfig` (look for the `IPv4 Address` under
 your active Wi-Fi/Ethernet adapter), then browse to
-`http://<that-ip>:3000` from another device on the same network. No app code
+`http://<that-ip>:7000` from another device on the same network. No app code
 changes are needed for this: the frontend's browser-facing code only ever
 calls relative `/api/*` paths, which stay same-origin against whatever host
 the page was loaded from and get proxied server-side to the backend — CORS is
@@ -226,8 +226,8 @@ never a factor for normal use.
 To remove the port proxy rules later:
 
 ```powershell
-netsh interface portproxy delete v4tov4 listenaddress=0.0.0.0 listenport=3000
-netsh interface portproxy delete v4tov4 listenaddress=0.0.0.0 listenport=8001
+netsh interface portproxy delete v4tov4 listenaddress=0.0.0.0 listenport=7000
+netsh interface portproxy delete v4tov4 listenaddress=0.0.0.0 listenport=7001
 ```
 
 ## AI Engine (OpenRouter)

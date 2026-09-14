@@ -14,12 +14,12 @@ services:
       INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-admin@example.com}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       UPLOAD_DIR: /app/uploads
-      CORS_ORIGINS: '["http://localhost:3000"]'
+      CORS_ORIGINS: '["http://localhost:7000"]'
     volumes:
       - db_data:/app/data
       - uploads_data:/app/uploads
     ports:
-      - "8001:8000"
+      - "7001:8000"
 
   frontend:
     build:
@@ -33,7 +33,7 @@ services:
     environment:
       BACKEND_INTERNAL_URL: http://backend:8000
     ports:
-      - "3000:3000"
+      - "7000:3000"
 
 volumes:
   db_data:
