@@ -18,7 +18,6 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [saving, setSaving] = useState(false);
-  const [reindexing, setReindexing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,12 +36,6 @@ export default function SettingsPage() {
     try {
       const payload: Record<string, unknown> = {
         openrouter_model: settings.openrouter_model,
-        openrouter_embedding_model: settings.openrouter_embedding_model,
-        fallback_message: settings.fallback_message,
-        confidence_threshold: settings.confidence_threshold,
-        top_k: settings.top_k,
-        off_topic_threshold: settings.off_topic_threshold,
-        off_topic_message: settings.off_topic_message,
       };
       if (apiKeyInput.trim()) payload.openrouter_api_key = apiKeyInput.trim();
       const updated = await apiPost<Settings>("/api/settings", payload);
@@ -53,20 +46,6 @@ export default function SettingsPage() {
       setError(err instanceof ApiError ? err.message : "Failed to save settings");
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function handleReindex() {
-    setReindexing(true);
-    setError(null);
-    setMessage(null);
-    try {
-      const res = await apiPost<{ reindexed: number }>("/api/admin/reindex");
-      setMessage(`Re-embedded ${res.reindexed} FAQ entries.`);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Reindex failed");
-    } finally {
-      setReindexing(false);
     }
   }
 
@@ -93,85 +72,6 @@ export default function SettingsPage() {
             className="rounded border border-slate-300 px-3 py-2 text-sm"
           />
         </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-sm font-medium text-slate-700">OpenRouter Embedding Model</label>
-          <input
-            value={settings.openrouter_embedding_model}
-            onChange={(e) => setSettings({ ...settings, openrouter_embedding_model: e.target.value })}
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
-          />
-          <p className="text-xs text-slate-400">
-            Changing this requires re-indexing all FAQ and vault entries below.
-          </p>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label className="text-sm font-medium text-slate-700">Fallback Message</label>
-          <textarea
-            value={settings.fallback_message}
-            onChange={(e) => setSettings({ ...settings, fallback_message: e.target.value })}
-            rows={2}
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
-          />
-          <p className="text-xs text-slate-400">
-            Shown for genuine support questions the AI can&apos;t answer confidently. These are
-            logged under Unanswered Questions for review.
-          </p>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label className="text-sm font-medium text-slate-700">Off-Topic Redirect Message</label>
-          <textarea
-            value={settings.off_topic_message}
-            onChange={(e) => setSettings({ ...settings, off_topic_message: e.target.value })}
-            rows={2}
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
-          />
-          <p className="text-xs text-slate-400">
-            Shown for small talk / greetings unrelated to any product or technical topic (e.g.
-            &quot;how are you?&quot;). Not logged for agent review.
-          </p>
-        </div>
-
-        <div className="flex gap-4">
-          <div className="flex flex-1 flex-col gap-1">
-            <label className="text-sm font-medium text-slate-700">Off-Topic Threshold</label>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              max="1"
-              value={settings.off_topic_threshold}
-              onChange={(e) => setSettings({ ...settings, off_topic_threshold: Number(e.target.value) })}
-              className="rounded border border-slate-300 px-3 py-2 text-sm"
-            />
-            <p className="text-xs text-slate-400">Below this similarity: off-topic redirect.</p>
-          </div>
-          <div className="flex flex-1 flex-col gap-1">
-            <label className="text-sm font-medium text-slate-700">Confidence Threshold</label>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              max="1"
-              value={settings.confidence_threshold}
-              onChange={(e) => setSettings({ ...settings, confidence_threshold: Number(e.target.value) })}
-              className="rounded border border-slate-300 px-3 py-2 text-sm"
-            />
-            <p className="text-xs text-slate-400">Above this similarity: answer from KB.</p>
-          </div>
-          <div className="flex flex-1 flex-col gap-1">
-            <label className="text-sm font-medium text-slate-700">Top-K Retrieval</label>
-            <input
-              type="number"
-              min="1"
-              max="20"
-              value={settings.top_k}
-              onChange={(e) => setSettings({ ...settings, top_k: Number(e.target.value) })}
-              className="rounded border border-slate-300 px-3 py-2 text-sm"
-            />
-          </div>
-        </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
         {message && <p className="text-sm text-green-600">{message}</p>}
@@ -183,14 +83,6 @@ export default function SettingsPage() {
             className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             {saving ? "Saving..." : "Save Settings"}
-          </button>
-          <button
-            type="button"
-            onClick={handleReindex}
-            disabled={reindexing}
-            className="rounded border border-slate-300 px-4 py-2 text-sm disabled:opacity-50"
-          >
-            {reindexing ? "Re-indexing..." : "Re-index All FAQs"}
           </button>
         </div>
       </form>
