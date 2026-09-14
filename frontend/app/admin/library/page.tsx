@@ -59,6 +59,11 @@ interface SearchResult {
   source_url: string | null;
 }
 
+interface AnswerSource {
+  title: string;
+  source_url: string | null;
+}
+
 const STATUS_STYLES: Record<string, string> = {
   pending: "bg-slate-100 text-slate-600",
   processing: "bg-blue-50 text-blue-700",
@@ -176,6 +181,7 @@ export default function LibraryPage() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchAnswer, setSearchAnswer] = useState<string | null>(null);
+  const [searchAnswerSources, setSearchAnswerSources] = useState<AnswerSource[]>([]);
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
   const [searchResultsPage, setSearchResultsPage] = useState(1);
   const searchResultsPageSize = 5;
@@ -408,10 +414,15 @@ export default function LibraryPage() {
     setSearching(true);
     setError(null);
     try {
-      const data = await apiPost<{ answer: string | null; results: SearchResult[] }>("/api/library/search", {
+      const data = await apiPost<{
+        answer: string | null;
+        answer_sources: AnswerSource[];
+        results: SearchResult[];
+      }>("/api/library/search", {
         query: searchQuery.trim(),
       });
       setSearchAnswer(data.answer);
+      setSearchAnswerSources(data.answer_sources ?? []);
       setSearchResults(data.results);
       setSearchResultsPage(1);
     } catch (err) {
@@ -594,6 +605,7 @@ export default function LibraryPage() {
               type="button"
               onClick={() => {
                 setSearchAnswer(null);
+                setSearchAnswerSources([]);
                 setSearchResults(null);
                 setSearchResultsPage(1);
                 setSearchQuery("");
@@ -611,6 +623,33 @@ export default function LibraryPage() {
               <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
                 <p className="mb-1 text-xs font-medium uppercase tracking-wide text-blue-700">Answer</p>
                 <p className="text-sm text-slate-800">{searchAnswer}</p>
+                {searchAnswerSources.length > 0 && (
+                  <div className="mt-3 border-t border-blue-100 pt-2">
+                    <p className="mb-1 text-xs font-medium uppercase tracking-wide text-blue-700">
+                      Sourced from
+                    </p>
+                    <ul className="flex flex-col gap-0.5">
+                      {searchAnswerSources.map((s, i) =>
+                        s.source_url ? (
+                          <li key={i}>
+                            <a
+                              href={s.source_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-blue-600 hover:underline"
+                            >
+                              {s.title}
+                            </a>
+                          </li>
+                        ) : (
+                          <li key={i} className="text-xs text-slate-500">
+                            {s.title}
+                          </li>
+                        )
+                      )}
+                    </ul>
+                  </div>
+                )}
               </div>
             )}
             {!searchAnswer && (

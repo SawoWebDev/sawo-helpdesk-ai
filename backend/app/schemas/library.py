@@ -88,8 +88,14 @@ class LibrarySearchResult(BaseModel):
     source_url: str | None
 
 
+class LibraryAnswerSourceOut(BaseModel):
+    title: str
+    source_url: str | None
+
+
 class LibrarySearchResponse(BaseModel):
     answer: str | None
+    answer_sources: list[LibraryAnswerSourceOut] = []
     results: list[LibrarySearchResult]
 
 

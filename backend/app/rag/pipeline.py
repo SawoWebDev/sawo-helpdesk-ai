@@ -24,7 +24,11 @@ SYSTEM_PROMPT = (
     "The context may contain several excerpts pulled by a similarity search, and not "
     "all of them are necessarily relevant to the question — read all of them and use "
     "only the ones that actually help answer it. "
-    "Do not use any outside knowledge, do not guess, and do not make anything up. "
+    "Every single fact, number, name, or claim in your answer MUST be explicitly present "
+    "in the context. Do not add any detail you know from general/outside knowledge, even "
+    "if it seems true or well-known — if the context doesn't say it, it is not in your "
+    "answer. Do not guess, estimate, or fill gaps to make the answer sound more complete. "
+    "It is better to give a short answer or refuse than to add unverified details. "
     f"If none of the context is actually relevant, or it doesn't contain enough "
     f"information to answer the question, respond with exactly: {REFUSAL_SENTINEL}"
 )
@@ -35,6 +39,18 @@ RELEVANCE_SYSTEM_PROMPT = (
     "exactly one word: YES if it is such a question, or NO if it is small talk, "
     "a greeting, general knowledge, or anything unrelated to product/technical "
     "support. Respond with nothing except YES or NO."
+)
+
+GROUNDING_CHECK_SYSTEM_PROMPT = (
+    "You are a fact-checker. You will be given a CONTEXT and an ANSWER that was "
+    "supposedly written using only that context. Check whether every factual claim "
+    "in the ANSWER (every specific number, name, date, certification, address, or "
+    "other concrete detail) is actually present in the CONTEXT. General wording, "
+    "paraphrasing, and reasonable summarizing are fine — the issue is only claims "
+    "the CONTEXT never states at all. "
+    "Respond with exactly one word: GROUNDED if every claim traces back to the "
+    "CONTEXT, or UNGROUNDED if the ANSWER includes any specific fact not present "
+    "in the CONTEXT. Respond with nothing except GROUNDED or UNGROUNDED."
 )
 
 OFF_TOPIC_SYSTEM_PROMPT = (
@@ -89,6 +105,26 @@ def _looks_like_real_reply(text: str) -> bool:
     if not any(c.isalpha() for c in stripped):
         return False
     return True
+
+
+async def _is_grounded(engine, context: str, answer: str) -> bool:
+    """Free/low-quality models don't reliably obey a "don't add outside
+    knowledge" instruction on their own — verified live, they'll pad a thin
+    context out with specific facts (certifications, addresses, headcounts)
+    pulled from training data instead of refusing. This runs a second,
+    narrowly-scoped check asking the model to compare the generated answer
+    against the context and flag anything not actually supported. Defaults to
+    True (trust the answer) only if the check call itself fails, so an AI
+    engine hiccup doesn't turn every question into a refusal — but an actual
+    UNGROUNDED verdict is authoritative."""
+    try:
+        verdict = await engine.generate(
+            GROUNDING_CHECK_SYSTEM_PROMPT, context, f"ANSWER:\n{answer}"
+        )
+    except AIEngineError:
+        return True
+    first_word = verdict.strip().upper().split()[0] if verdict.strip() else ""
+    return first_word != "UNGROUNDED"
 
 
 async def _is_on_topic(engine, question: str) -> bool:
@@ -212,6 +248,11 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
         )
 
     if not generated or REFUSAL_SENTINEL in generated:
+        return await _fallback(
+            db, question, fallback_message, best_similarity, engine_used=engine.name
+        )
+
+    if not await _is_grounded(engine, context, generated):
         return await _fallback(
             db, question, fallback_message, best_similarity, engine_used=engine.name
         )

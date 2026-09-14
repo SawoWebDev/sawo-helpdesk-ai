@@ -22,10 +22,11 @@ from app.crud.harvest import (
 from app.crud.vault import keyword_search_vault, semantic_search_vault
 from app.db.session import get_db
 from app.models.user import User
-from app.rag.pipeline import REFUSAL_SENTINEL, SYSTEM_PROMPT, _sanitize_text
+from app.rag.pipeline import REFUSAL_SENTINEL, SYSTEM_PROMPT, _is_grounded, _sanitize_text
 from app.schemas.common import PaginatedResponse
 from app.schemas.library import (
     JobFaqOut,
+    LibraryAnswerSourceOut,
     LibraryBatchSummaryOut,
     LibraryCrawlBatchRequest,
     LibraryCrawlBatchResponse,
@@ -288,19 +289,30 @@ async def search(payload: LibrarySearchRequest, db: AsyncSession = Depends(get_d
     results = results[: payload.limit]
 
     answer = None
+    answer_sources: list[LibraryAnswerSourceOut] = []
     if results:
-        context = "\n\n".join(
-            f"Topic: {entry.title}\n{entry.content}" for _result, entry in results[:SYNTHESIS_CONTEXT_LIMIT]
-        )
+        synthesis_pool = results[:SYNTHESIS_CONTEXT_LIMIT]
+        context = "\n\n".join(f"Topic: {entry.title}\n{entry.content}" for _result, entry in synthesis_pool)
         try:
             engine = await get_active_engine(db)
             generated = await engine.generate(SYSTEM_PROMPT, context, payload.query)
-            if generated and REFUSAL_SENTINEL not in generated:
+            if generated and REFUSAL_SENTINEL not in generated and await _is_grounded(engine, context, generated):
                 answer = _sanitize_text(generated)
+                seen_urls: set[str] = set()
+                for result, _entry in synthesis_pool:
+                    if result.source_url and result.source_url in seen_urls:
+                        continue
+                    if result.source_url:
+                        seen_urls.add(result.source_url)
+                    answer_sources.append(
+                        LibraryAnswerSourceOut(title=result.title, source_url=result.source_url)
+                    )
         except AIEngineError:
             pass
 
-    return LibrarySearchResponse(answer=answer, results=[result for result, _entry in results])
+    return LibrarySearchResponse(
+        answer=answer, answer_sources=answer_sources, results=[result for result, _entry in results]
+    )
 
 
 @router.get("/sources/{source_id}", response_model=LibrarySourceOut)
