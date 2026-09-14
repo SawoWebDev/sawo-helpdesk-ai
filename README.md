@@ -17,11 +17,11 @@ human agent instead of guessing.
 | Keyword search | SQLite FTS5 (full-text, bm25-ranked) |
 | AI (chat + embeddings) | OpenRouter (one API key, model configurable per use) |
 | File storage | Local disk (`backend/uploads/`) |
-| Containers | Podman Compose (optional — see below) |
+| Containers | Podman Compose — the required way to run the app (see below) |
 
-There is no local model runtime (no Ollama, no GPU needed) and no database
-server to install — everything embeddable runs inside the Python process or
-inside SQLite itself.
+There is no local model runtime (no Ollama, no GPU needed) and no separate
+database server to install — SQLite lives inside the backend container. You
+do need Podman (or Docker) installed to build and run the two containers.
 
 ## How it's organized
 
@@ -45,7 +45,7 @@ frontend/
   app/           Next.js pages — public chat at `/`, admin panel at `/admin/*`
   app/api/[...path]/route.ts   proxies /api/* to the backend (see below)
 deploy/
-  podman-compose.yml   optional: runs backend + frontend as containers
+  podman-compose.yml   runs backend + frontend as containers — the supported way to run the app
 ```
 
 ## The RAG flow (how a chat question gets answered)
@@ -115,11 +115,54 @@ app can tell whether a vector currently exists.
 
 ## How to Run
 
-No container runtime is required — SQLite is just a file, and OpenRouter is
-a remote API. Podman is only a convenience if you want backend + frontend
-bundled behind one command.
+Requires [Podman](https://podman.io/) (or Docker) with Compose support
+installed. This is the supported way to run the app — the backend and
+frontend each build into a container, and the backend's SQLite database and
+uploaded files persist in named volumes across restarts.
 
-### Option A — run directly (recommended for development)
+```sh
+cp .env.example .env      # fill in OPENROUTER_API_KEY, JWT_SECRET, admin creds
+podman compose -f deploy/podman-compose.yml --env-file .env up -d --build
+```
+
+Docker Compose works identically with the same file:
+
+```sh
+docker compose -f deploy/podman-compose.yml --env-file .env up -d --build
+```
+
+Then open:
+- Public chat: http://localhost:3000
+- Admin panel: http://localhost:3000/admin/login (`admin` / `changeme123` by
+  default — see `.env.example` / `INITIAL_ADMIN_*` to change them)
+- Backend API directly: http://localhost:8001
+
+**Before chat/embeddings will work**, set an OpenRouter API key — either put
+`OPENROUTER_API_KEY=...` in `.env` before the first build, or log in as admin
+and set it under **Settings** in the admin panel afterward (no rebuild
+needed either way).
+
+Common commands:
+
+```sh
+# Rebuild after a code change
+podman-compose -f deploy/podman-compose.yml --env-file .env up -d --build
+
+# Start without rebuilding
+podman-compose -f deploy/podman-compose.yml --env-file .env up -d
+
+# Stop and remove the containers (data volumes are kept)
+podman-compose -f deploy/podman-compose.yml --env-file .env down
+
+# Tail backend logs
+podman logs -f deploy_backend_1
+```
+
+### Running backend/frontend directly (no containers, for quick debugging)
+
+Not the supported path, but useful for stepping through code without a
+rebuild cycle. SQLite is just a file and OpenRouter is a remote API, so
+nothing else needs installing:
 
 **Backend:**
 
@@ -142,49 +185,8 @@ npm run dev
 ```
 
 The frontend proxies `/api/*` and `/uploads/*` to `BACKEND_INTERNAL_URL`
-(defaults to `http://localhost:8000`, matching the backend's default port).
-
-Then open:
-- Public chat: http://localhost:3000
-- Admin panel: http://localhost:3000/admin/login (`admin` / `changeme123` by
-  default — see `.env.example` / `INITIAL_ADMIN_*` to change them)
-
-**Before chat/embeddings will work**, set an OpenRouter API key — either put
-`OPENROUTER_API_KEY=...` in `backend/.env`, or log in as admin and set it
-under **Settings** in the admin panel (no restart needed either way).
-
-### Option B — Podman Compose (bundles backend + frontend)
-
-```sh
-cp .env.example .env      # fill in OPENROUTER_API_KEY, JWT_SECRET, admin creds
-podman compose -f deploy/podman-compose.yml --env-file .env up -d --build
-```
-
-Docker Compose works identically with the same file:
-
-```sh
-docker compose -f deploy/podman-compose.yml --env-file .env up -d --build
-```
-
-Same URLs as above, except the backend is published on **8001** instead of
-8000 (`http://localhost:8001`). The SQLite database and uploaded files
-persist in the `db_data` / `uploads_data` named volumes across restarts.
-
-Common commands:
-
-```sh
-# Rebuild after a code change
-podman-compose -f deploy/podman-compose.yml --env-file .env up -d --build
-
-# Start without rebuilding
-podman-compose -f deploy/podman-compose.yml --env-file .env up -d
-
-# Stop and remove the containers (data volumes are kept)
-podman-compose -f deploy/podman-compose.yml --env-file .env down
-
-# Tail backend logs
-podman logs -f deploy_backend_1
-```
+(defaults to `http://localhost:8000`, matching the backend's default port
+when run this way).
 
 ## LAN Access (reaching it from other devices, not just localhost)
 
