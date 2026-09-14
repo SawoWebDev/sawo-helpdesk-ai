@@ -17,6 +17,7 @@ from app.routers import (
     settings as settings_router,
     unanswered,
     uploads,
+    usage,
     users,
     vault,
 )
@@ -50,6 +51,7 @@ app.include_router(users.router)
 app.include_router(admin.router)
 app.include_router(vault.router)
 app.include_router(library.router)
+app.include_router(usage.router)
 
 
 @app.get("/api/health")

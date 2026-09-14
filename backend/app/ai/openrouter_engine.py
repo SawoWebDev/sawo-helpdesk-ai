@@ -1,6 +1,9 @@
+import asyncio
+
 import httpx
 
 from app.ai.base import AIEngine, AIEngineError
+from app.services.ai_usage import record_usage
 
 TIMEOUT = httpx.Timeout(120.0, connect=10.0)
 EMBED_TIMEOUT = httpx.Timeout(60.0, connect=10.0)
@@ -44,6 +47,7 @@ class OpenRouterEngine(AIEngine):
                 resp.raise_for_status()
                 data = resp.json()
                 ordered = sorted(data["data"], key=lambda item: item["index"])
+                asyncio.create_task(record_usage(self.embedding_model, "embedding", data.get("usage")))
                 return [item["embedding"] for item in ordered]
         except httpx.HTTPError as exc:
             raise AIEngineError(f"OpenRouter embedding request failed: {exc}") from exc
@@ -83,6 +87,7 @@ class OpenRouterEngine(AIEngine):
                     )
                     resp.raise_for_status()
                     data = resp.json()
+                    asyncio.create_task(record_usage(model, "chat", data.get("usage")))
                     return data["choices"][0]["message"]["content"].strip()
             except httpx.HTTPError as exc:
                 last_error = exc

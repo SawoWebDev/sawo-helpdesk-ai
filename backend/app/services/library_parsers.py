@@ -55,16 +55,27 @@ def extract_xlsx_text(data: bytes) -> str:
     return "\n".join(lines)
 
 
-_STRIP_TAGS = ["script", "style", "nav", "header", "footer", "noscript", "svg", "form", "aside"]
+# Strip only what genuinely cannot render as readable text (raw script/style
+# source code, SVG markup) — capture everything else verbatim, including nav
+# menus, headers/footers, and forms. No guessing at "chrome" vs "real
+# content": whatever text is actually on the crawled page goes into the
+# Library as-is.
+_STRIP_TAGS = [
+    "script",
+    "style",
+    "svg",
+]
 
 
 def extract_html_text(html: str) -> str:
     soup = BeautifulSoup(html, "lxml")
+
     for tag_name in _STRIP_TAGS:
         for tag in soup.find_all(tag_name):
             tag.decompose()
-    main = soup.find("main") or soup.find("article") or soup.body or soup
-    text = main.get_text(separator="\n")
+
+    body = soup.body or soup
+    text = body.get_text(separator="\n")
     lines = [line.strip() for line in text.splitlines()]
     return "\n".join(line for line in lines if line)
 

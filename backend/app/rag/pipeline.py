@@ -21,9 +21,12 @@ REFUSAL_SENTINEL = "NOT_FOUND"
 SYSTEM_PROMPT = (
     "You are a strict helpdesk assistant. You may ONLY answer using the information "
     "in the provided context below, which comes from an internal knowledge base. "
+    "The context may contain several excerpts pulled by a similarity search, and not "
+    "all of them are necessarily relevant to the question — read all of them and use "
+    "only the ones that actually help answer it. "
     "Do not use any outside knowledge, do not guess, and do not make anything up. "
-    f"If the context does not contain enough information to answer the question, "
-    f"respond with exactly: {REFUSAL_SENTINEL}"
+    f"If none of the context is actually relevant, or it doesn't contain enough "
+    f"information to answer the question, respond with exactly: {REFUSAL_SENTINEL}"
 )
 
 RELEVANCE_SYSTEM_PROMPT = (
@@ -111,6 +114,7 @@ class RagResult:
     image_urls: list[str] = field(default_factory=list)
     reference_urls: list[str] = field(default_factory=list)
     engine_used: str = "none"
+    low_confidence: bool = False
 
 
 async def answer_question(db: AsyncSession, question: str) -> RagResult:
@@ -133,8 +137,15 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
     except AIEngineError:
         return await _fallback(db, question, fallback_message, None, engine_used="none")
 
-    faq_hits = await knn_search(db, FAQ_VEC_TABLE, query_vector, top_k)
-    vault_hits = await knn_search(db, VAULT_VEC_TABLE, query_vector, top_k)
+    # Cast a wider net than top_k and let the LLM judge relevance over the
+    # whole pool, rather than a raw similarity cutoff deciding before
+    # generation ever happens. A single confidence_threshold can reject a
+    # genuinely relevant chunk just because its wording doesn't closely match
+    # the question — the LLM reading the actual content is a better judge of
+    # "is this actually useful" than vector distance alone.
+    candidate_k = max(top_k * 3, top_k + 5)
+    faq_hits = await knn_search(db, FAQ_VEC_TABLE, query_vector, candidate_k)
+    vault_hits = await knn_search(db, VAULT_VEC_TABLE, query_vector, candidate_k)
 
     faq_ids = [entry_id for entry_id, _ in faq_hits]
     faq_by_id = {
@@ -156,16 +167,17 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
         )
         vault_by_id = {entry.id: entry for entry in vault_result.scalars()}
 
-    # Merge FAQ + Vault candidates by similarity (higher = closer) and take the
-    # combined top_k, so a strong vault match can outrank a weak FAQ match and
-    # vice versa. When there are no vault hits, this is exactly today's
-    # FAQ-only result (same limit applied).
-    rows = sorted(
+    # Merge FAQ + Vault candidates by similarity (higher = closer). Only drop
+    # ones below off_topic_threshold — that floor separates "plausibly
+    # related" from "pure noise" — rather than the stricter confidence_threshold,
+    # which is now just a signal for is_fallback/logging, not a hard gate.
+    all_rows = sorted(
         [(("faq", faq_by_id[entry_id]), similarity) for entry_id, similarity in faq_hits if entry_id in faq_by_id]
         + [(("vault", vault_by_id[entry_id]), similarity) for entry_id, similarity in vault_hits if entry_id in vault_by_id],
         key=lambda pair: pair[1],
         reverse=True,
-    )[:top_k]
+    )
+    rows = [pair for pair in all_rows if pair[1] >= off_topic_threshold][:top_k]
 
     if not rows:
         if not await _is_on_topic(engine, question):
@@ -173,17 +185,6 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
         return await _fallback(db, question, fallback_message, None, engine_used="none")
 
     (_best_kind, _best_entry), best_similarity = rows[0]
-
-    if best_similarity < threshold:
-        # Ambiguous zone: similarity alone can't reliably tell a genuine-but-vague
-        # support question apart from something entirely off-topic, especially
-        # with a small knowledge base. Only here do we pay for an LLM classify
-        # call — a clear FAQ match above threshold never hits this path.
-        if best_similarity < off_topic_threshold or not await _is_on_topic(engine, question):
-            return await _off_topic(db, engine, question, off_topic_message, best_similarity)
-        return await _fallback(
-            db, question, fallback_message, best_similarity, engine_used="none"
-        )
 
     context_parts = []
     matched_faq_ids: list[int] = []
@@ -217,6 +218,13 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
 
     generated = _sanitize_text(generated)
 
+    # best_similarity no longer gates whether we answer (the LLM already
+    # judged the retrieved context sufficient), but it's still useful as a
+    # low-confidence signal: an answer built from below-threshold matches was
+    # accepted on the LLM's judgment alone, worth flagging for review even
+    # though it's a real, grounded answer rather than a canned fallback.
+    low_confidence = best_similarity < threshold
+
     chat_log = ChatLog(
         question_text=question,
         answer_text=generated,
@@ -237,6 +245,7 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
         image_urls=list(dict.fromkeys(image_urls)),
         reference_urls=list(dict.fromkeys(reference_urls)),
         engine_used=engine.name,
+        low_confidence=low_confidence,
     )
 
 

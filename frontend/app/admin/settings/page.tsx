@@ -14,15 +14,32 @@ interface Settings {
   off_topic_message: string;
 }
 
+interface UsageSummary {
+  active_model: string;
+  active_model_is_free: boolean;
+  requests_today: number;
+  tokens_today: number;
+  requests_total: number;
+  tokens_total: number;
+}
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  function loadUsage() {
+    apiGet<UsageSummary>("/api/usage/summary").then(setUsage);
+  }
+
   useEffect(() => {
     apiGet<Settings>("/api/settings").then(setSettings);
+    loadUsage();
+    const interval = setInterval(loadUsage, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   if (!settings) return <p className="text-slate-400">Loading...</p>;
@@ -42,6 +59,7 @@ export default function SettingsPage() {
       setSettings(updated);
       setApiKeyInput("");
       setMessage("Settings saved.");
+      loadUsage();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to save settings");
     } finally {
@@ -86,6 +104,48 @@ export default function SettingsPage() {
           </button>
         </div>
       </form>
+
+      {usage && (
+        <div className="mt-8 max-w-xl rounded-lg border border-slate-200 bg-white p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-700">AI Usage Monitor</h2>
+            <span
+              className={`rounded px-2 py-0.5 text-xs font-medium ${
+                usage.active_model_is_free ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-600"
+              }`}
+            >
+              {usage.active_model_is_free ? "Free model" : "Paid model"}
+            </span>
+          </div>
+          <p className="mb-4 truncate text-xs text-slate-500" title={usage.active_model}>
+            Active model: <span className="font-medium text-slate-700">{usage.active_model || "Not set"}</span>
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded border border-slate-100 p-3">
+              <p className="text-xs text-slate-500">Requests today</p>
+              <p className="text-xl font-semibold text-slate-800">{usage.requests_today}</p>
+            </div>
+            <div className="rounded border border-slate-100 p-3">
+              <p className="text-xs text-slate-500">Tokens today</p>
+              <p className="text-xl font-semibold text-slate-800">{usage.tokens_today.toLocaleString()}</p>
+            </div>
+            <div className="rounded border border-slate-100 p-3">
+              <p className="text-xs text-slate-500">Requests (all time)</p>
+              <p className="text-xl font-semibold text-slate-800">{usage.requests_total}</p>
+            </div>
+            <div className="rounded border border-slate-100 p-3">
+              <p className="text-xs text-slate-500">Tokens (all time)</p>
+              <p className="text-xl font-semibold text-slate-800">{usage.tokens_total.toLocaleString()}</p>
+            </div>
+          </div>
+          {usage.active_model_is_free && (
+            <p className="mt-3 text-xs text-slate-400">
+              Free OpenRouter models are rate-limited (typically 20 requests/min, 200-1000/day)
+              rather than billed — token counts here are for tracking that quota, not cost.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
