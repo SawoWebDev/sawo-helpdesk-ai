@@ -81,7 +81,9 @@ class OpenRouterEngine(AIEngine):
         except (KeyError, IndexError, ValueError) as exc:
             raise AIEngineError(f"OpenRouter embedding response malformed: {exc}") from exc
 
-    async def generate(self, system_prompt: str, context: str, user_query: str) -> str:
+    async def generate(
+        self, system_prompt: str, context: str, user_query: str, temperature: float | None = None
+    ) -> str:
         if not self.api_key:
             raise AIEngineError("OpenRouter API key is not configured.")
 
@@ -89,6 +91,9 @@ class OpenRouterEngine(AIEngine):
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {user_query}"},
         ]
+        payload = {"model": self.model, "messages": messages}
+        if temperature is not None:
+            payload["temperature"] = temperature
 
         async def _call():
             async with httpx.AsyncClient(timeout=TIMEOUT) as client:
@@ -98,7 +103,7 @@ class OpenRouterEngine(AIEngine):
                         "Authorization": f"Bearer {self.api_key}",
                         "Content-Type": "application/json",
                     },
-                    json={"model": self.model, "messages": messages},
+                    json=payload,
                 )
                 resp.raise_for_status()
                 return resp.json()

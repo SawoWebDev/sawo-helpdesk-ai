@@ -63,16 +63,6 @@ GROUNDING_CHECK_SYSTEM_PROMPT = (
     "in the CONTEXT. Respond with nothing except GROUNDED or UNGROUNDED."
 )
 
-LINK_RELEVANCE_SYSTEM_PROMPT = (
-    "You review candidate source links for a helpdesk answer. Each numbered "
-    "source below is labeled with the topic/question it came from. Decide "
-    "which ones are actually relevant to the user's question — specifically "
-    "useful as a reference for that exact question, not just from the same "
-    "general company or category. Respond with only the relevant numbers, "
-    "comma-separated (e.g. \"1,3\"), or respond with exactly NONE if none of "
-    "them are specifically relevant. Respond with nothing else."
-)
-
 OFF_TOPIC_SYSTEM_PROMPT = (
     "You are a helpdesk assistant. The user's message is small talk, a greeting, "
     "or otherwise unrelated to product/technical support. Write a brief, warm, "
@@ -139,7 +129,7 @@ async def _is_grounded(engine, context: str, answer: str) -> bool:
     UNGROUNDED verdict is authoritative."""
     try:
         verdict = await engine.generate(
-            GROUNDING_CHECK_SYSTEM_PROMPT, context, f"ANSWER:\n{answer}"
+            GROUNDING_CHECK_SYSTEM_PROMPT, context, f"ANSWER:\n{answer}", temperature=0
         )
     except AIEngineError:
         return True
@@ -153,42 +143,11 @@ async def _is_on_topic(engine, question: str) -> bool:
     True (let the normal RAG/threshold flow decide) if the classify call fails,
     so an AI engine hiccup never silently blocks a real question."""
     try:
-        verdict = await engine.generate(RELEVANCE_SYSTEM_PROMPT, "", question)
+        verdict = await engine.generate(RELEVANCE_SYSTEM_PROMPT, "", question, temperature=0)
     except AIEngineError:
         return True
     first_word = verdict.strip().lower().split()[0] if verdict.strip() else ""
     return first_word != "no"
-
-
-async def _filter_relevant_urls(
-    engine, question: str, urls: list[str], url_labels: dict[str, str]
-) -> list[str]:
-    """A broad question (e.g. "what is sawo?") can pull in several
-    tangentially-related matched rows that each only contributed a sentence
-    or two to the generated answer — e.g. a specific product page sitting
-    next to the general company-overview content that actually answered the
-    question. Attaching every matched row's link regardless makes the reply
-    look like it's citing pages the answer never actually drew on. This asks
-    the model to flag only the sources that are specifically relevant to the
-    question, defaulting to keeping everything if the check call itself
-    fails, so an AI engine hiccup never silently drops a real reference."""
-    if not urls:
-        return []
-    listing = "\n".join(f"{i + 1}. {url_labels.get(url, url)} -> {url}" for i, url in enumerate(urls))
-    try:
-        verdict = await engine.generate(LINK_RELEVANCE_SYSTEM_PROMPT, listing, question)
-    except AIEngineError:
-        return urls
-    verdict = verdict.strip().upper()
-    if not verdict or verdict == "NONE":
-        return []
-    keep_indices = set()
-    for token in re.split(r"[,\s]+", verdict):
-        if token.isdigit():
-            idx = int(token) - 1
-            if 0 <= idx < len(urls):
-                keep_indices.add(idx)
-    return [urls[i] for i in sorted(keep_indices)]
 
 
 @dataclass
@@ -296,25 +255,25 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
     matched_vault_ids: list[int] = []
     image_urls: list[str] = []
     reference_urls: list[str] = []
-    url_labels: dict[str, str] = {}
-    for (kind, entry), _similarity in rows:
+    url_similarity: dict[str, float] = {}
+    for (kind, entry), similarity in rows:
         if kind == "faq":
             context_parts.append(f"Q: {entry.question}\nA: {entry.answer}")
             matched_faq_ids.append(entry.id)
             image_urls.extend(entry.image_urls or [])
             for url in entry.reference_urls or []:
                 reference_urls.append(url)
-                url_labels.setdefault(url, entry.question)
+                url_similarity[url] = max(url_similarity.get(url, 0.0), similarity)
         else:
             context_parts.append(f"Topic: {entry.title}\n{entry.content}")
             matched_vault_ids.append(entry.id)
             if entry.source_url:
                 reference_urls.append(entry.source_url)
-                url_labels.setdefault(entry.source_url, entry.title)
+                url_similarity[entry.source_url] = max(url_similarity.get(entry.source_url, 0.0), similarity)
     context = "\n\n".join(context_parts)
 
     try:
-        generated = await engine.generate(SYSTEM_PROMPT, context, question)
+        generated = await engine.generate(SYSTEM_PROMPT, context, question, temperature=0)
     except AIEngineError:
         return await _fallback(
             db, question, fallback_message, best_similarity, engine_used=engine.name
@@ -340,14 +299,20 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
 
     generated = _sanitize_text(generated)
 
-    # Same trusted-vs-raw distinction as the grounding check above: FAQ
-    # entries are admin-curated, so their attached reference_urls are trusted
-    # as-is. Vault-sourced links come from crawled/uploaded content pulled in
-    # by similarity search alone, which can include tangentially-related
-    # pages the answer didn't actually draw on — worth a relevance pass.
-    reference_urls = list(dict.fromkeys(reference_urls))
-    if matched_vault_ids:
-        reference_urls = await _filter_relevant_urls(engine, question, reference_urls, url_labels)
+    # A link is only shown if the specific entry it came from was itself a
+    # strong, specific match for the question (>= confidence_threshold) —
+    # not just any row that made it into the generation context pool (which
+    # goes as low as off_topic_threshold, a much looser floor meant only to
+    # exclude pure noise). A broad question like "what is sawo?" can pull in
+    # several tangentially-related product pages alongside the content that
+    # actually answered it; only a tight match earns a reference link. This
+    # is a plain similarity-score cutoff rather than another LLM judgment
+    # call — the LLM-based version of this check (asking the model which
+    # links were "relevant") proved inconsistent run-to-run on the same
+    # question even at temperature 0, which a deterministic score avoids.
+    reference_urls = [
+        url for url in dict.fromkeys(reference_urls) if url_similarity.get(url, 0.0) >= threshold
+    ]
 
     # best_similarity no longer gates whether we answer (the LLM already
     # judged the retrieved context sufficient), but it's still useful as a

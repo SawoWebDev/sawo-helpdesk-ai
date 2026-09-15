@@ -13,5 +13,9 @@ class AIEngine(ABC):
         """Return one embedding vector per input text."""
 
     @abstractmethod
-    async def generate(self, system_prompt: str, context: str, user_query: str) -> str:
-        """Generate a grounded answer from the given context."""
+    async def generate(
+        self, system_prompt: str, context: str, user_query: str, temperature: float | None = None
+    ) -> str:
+        """Generate a grounded answer from the given context. Pass
+        temperature=0 for classification-style calls (yes/no, pick-a-number)
+        where a consistent judgment matters more than varied phrasing."""
