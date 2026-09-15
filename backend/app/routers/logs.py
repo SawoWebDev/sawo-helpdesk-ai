@@ -5,8 +5,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.base import AIEngineError
+from app.ai.factory import get_embedding_engine
 from app.core.deps import require_admin, require_agent_or_admin
-from app.crud.faq import create_faq
+from app.crud.faq import create_faq, find_duplicate_faq
 from app.db.session import get_db
 from app.models.chat_log import ChatLog
 from app.models.faq import FAQEntry
@@ -96,6 +97,20 @@ async def save_log_as_faq(log_id: int, db: AsyncSession = Depends(get_db)):
         for urls in faq_result.scalars():
             reference_urls.extend(urls or [])
     reference_urls = list(dict.fromkeys(reference_urls))
+
+    question_vector: list[float] | None = None
+    try:
+        embedding_engine = await get_embedding_engine(db)
+        [question_vector] = await embedding_engine.embed([log.question_text])
+    except AIEngineError:
+        pass  # falls back to the exact-text duplicate check below
+
+    duplicate = await find_duplicate_faq(db, log.question_text, question_vector)
+    if duplicate is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f'A FAQ for this question already exists: "{duplicate.question}"',
+        )
 
     entry = await create_faq(
         db,

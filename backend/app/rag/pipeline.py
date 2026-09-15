@@ -8,7 +8,7 @@ from app.ai.base import AIEngineError
 from app.ai.factory import get_active_engine, get_embedding_engine
 from app.core import setting_keys as keys
 from app.crud.category import get_or_create_other_category
-from app.crud.faq import create_faq
+from app.crud.faq import create_faq, find_duplicate_faq
 from app.crud.settings import get_all_settings
 from app.db.vec_store import FAQ_VEC_TABLE, VAULT_VEC_TABLE, knn_search
 from app.models.chat_log import ChatLog
@@ -298,22 +298,27 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
     # actually drew on Vault content and FAQ wasn't already the primary-tier
     # answer (a weak FAQ row can still ride along in the merged context pool
     # without being why the question was answered — matched_faq_ids alone
-    # isn't a reliable "already covered by FAQ" signal), so a question FAQ
-    # already answers outright doesn't spawn a duplicate row on every repeat.
+    # isn't a reliable "already covered by FAQ" signal). Relying on that
+    # retrieval check alone isn't a hard enough guarantee against duplicates
+    # though — e.g. the same question asked twice in quick succession, before
+    # the first save's embedding makes the new FAQ rank as primary-tier — so
+    # also explicitly check for an existing exact/near-duplicate question
+    # right before creating one.
     if matched_vault_ids and not faq_was_primary:
         try:
-            faq_entry = await create_faq(
-                db,
-                question=question,
-                answer=generated,
-                category_id=None,
-                image_urls=list(dict.fromkeys(image_urls)),
-                reference_urls=list(dict.fromkeys(reference_urls)),
-                source="chat_auto",
-                source_label="Auto-saved from chat",
-            )
-            await embed_entry(db, faq_entry)
-            await db.commit()
+            if await find_duplicate_faq(db, question, query_vector) is None:
+                faq_entry = await create_faq(
+                    db,
+                    question=question,
+                    answer=generated,
+                    category_id=None,
+                    image_urls=list(dict.fromkeys(image_urls)),
+                    reference_urls=list(dict.fromkeys(reference_urls)),
+                    source="chat_auto",
+                    source_label="Auto-saved from chat",
+                )
+                await embed_entry(db, faq_entry)
+                await db.commit()
         except AIEngineError:
             pass
 

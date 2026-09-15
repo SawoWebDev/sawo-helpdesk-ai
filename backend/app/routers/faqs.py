@@ -2,8 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.base import AIEngineError
+from app.ai.factory import get_embedding_engine
 from app.core.deps import require_agent_or_admin
-from app.crud.faq import create_faq, delete_faq, get_faq, list_faqs
+from app.crud.faq import create_faq, delete_faq, find_duplicate_faq, get_faq, list_faqs
 from app.db.session import get_db
 from app.rag.reindex import embed_entry
 from app.schemas.common import PaginatedResponse
@@ -40,6 +41,20 @@ async def get_one(faq_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.post("", response_model=FAQOut, status_code=status.HTTP_201_CREATED)
 async def create(payload: FAQCreate, db: AsyncSession = Depends(get_db)):
+    question_vector: list[float] | None = None
+    try:
+        embedding_engine = await get_embedding_engine(db)
+        [question_vector] = await embedding_engine.embed([payload.question])
+    except AIEngineError:
+        pass  # falls back to the exact-text duplicate check below
+
+    duplicate = await find_duplicate_faq(db, payload.question, question_vector)
+    if duplicate is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f'A FAQ for this question already exists: "{duplicate.question}"',
+        )
+
     entry = await create_faq(
         db,
         question=payload.question,
@@ -63,6 +78,21 @@ async def update(faq_id: int, payload: FAQUpdate, db: AsyncSession = Depends(get
     entry = await get_faq(db, faq_id)
     if entry is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="FAQ entry not found")
+
+    if "question" in payload.model_fields_set and payload.question is not None:
+        question_vector: list[float] | None = None
+        try:
+            embedding_engine = await get_embedding_engine(db)
+            [question_vector] = await embedding_engine.embed([payload.question])
+        except AIEngineError:
+            pass  # falls back to the exact-text duplicate check below
+
+        duplicate = await find_duplicate_faq(db, payload.question, question_vector, exclude_id=faq_id)
+        if duplicate is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f'A FAQ for this question already exists: "{duplicate.question}"',
+            )
 
     changed_content = False
     status_changed = False
