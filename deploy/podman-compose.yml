@@ -19,7 +19,7 @@ services:
       - db_data:/app/data
       - uploads_data:/app/uploads
     ports:
-      - "7001:8000"
+      - "0.0.0.0:7001:8000"
 
   frontend:
     build:
@@ -33,7 +33,7 @@ services:
     environment:
       BACKEND_INTERNAL_URL: http://backend:8000
     ports:
-      - "7000:3000"
+      - "0.0.0.0:7000:3000"
 
 volumes:
   db_data:

@@ -201,19 +201,37 @@ Podman-on-Windows/WSL2 limitation, not something specific to this app; Docker
 Desktop on Windows and native Linux Podman don't have it.)
 
 To fix it, forward the LAN interface to loopback with a Windows port proxy.
-Run these in an **Administrator PowerShell** window (adjust the ports if you
-changed them from the Compose defaults — `7000` for frontend, `7001` for
-backend):
+This needs an **elevated** PowerShell window — a regular one will silently
+fail with "Access is denied" / "requires elevation":
+
+1. Click the **Start menu**, type `PowerShell`.
+2. You'll see "Windows PowerShell" in the results — **right-click** it (don't
+   just click/press Enter).
+3. Choose **"Run as administrator"** from the right-click menu.
+4. A **UAC prompt** will pop up asking "Do you want to allow this app to make
+   changes to your device?" — click **Yes**.
+5. A new window opens — check the title bar says **"Administrator: Windows
+   PowerShell"**.
+6. Paste both lines into that window and press Enter (adjust the ports if you
+   changed them from the Compose defaults — `7000` for frontend, `7001` for
+   backend):
 
 ```powershell
-# Forward LAN traffic to the loopback-bound container ports
 netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=7000 connectaddress=127.0.0.1 connectport=7000
 netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=7001 connectaddress=127.0.0.1 connectport=7001
+```
 
-# Allow inbound traffic on those ports through Windows Firewall
+There should be no error output if it worked. In that same elevated window,
+also allow inbound traffic on those ports through Windows Firewall:
+
+```powershell
 New-NetFirewallRule -DisplayName "Helpdesk Frontend" -Direction Inbound -Action Allow -LocalPort 7000 -Protocol TCP
 New-NetFirewallRule -DisplayName "Helpdesk Backend" -Direction Inbound -Action Allow -LocalPort 7001 -Protocol TCP
 ```
+
+To confirm the port proxy rules actually took effect, run
+`netsh interface portproxy show v4tov4` — it should list both ports; empty
+output means the commands above weren't run in an elevated window.
 
 Find your machine's LAN IP with `ipconfig` (look for the `IPv4 Address` under
 your active Wi-Fi/Ethernet adapter), then browse to
