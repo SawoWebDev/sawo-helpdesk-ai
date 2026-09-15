@@ -28,6 +28,13 @@ REFUSAL_SENTINEL = "NOT_FOUND"
 # here keeps that cost bounded regardless of how high top_k is configured.
 GENERATION_CONTEXT_LIMIT = 5
 
+# Floating-point tolerance for "is this url's similarity score the same as
+# the best one" when deciding which reference links to show (see
+# answer_question below) — not a tunable relevance knob, just slack for
+# binary float representation, since the compared values come from the same
+# query round and should otherwise be exactly equal.
+LINK_SIMILARITY_EPSILON = 1e-9
+
 SYSTEM_PROMPT = (
     "You are a strict helpdesk assistant. You may ONLY answer using the information "
     "in the provided context below, which comes from an internal knowledge base. "
@@ -299,20 +306,29 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
 
     generated = _sanitize_text(generated)
 
-    # A link is only shown if the specific entry it came from was itself a
-    # strong, specific match for the question (>= confidence_threshold) —
-    # not just any row that made it into the generation context pool (which
-    # goes as low as off_topic_threshold, a much looser floor meant only to
-    # exclude pure noise). A broad question like "what is sawo?" can pull in
-    # several tangentially-related product pages alongside the content that
-    # actually answered it; only a tight match earns a reference link. This
-    # is a plain similarity-score cutoff rather than another LLM judgment
-    # call — the LLM-based version of this check (asking the model which
-    # links were "relevant") proved inconsistent run-to-run on the same
-    # question even at temperature 0, which a deterministic score avoids.
-    reference_urls = [
-        url for url in dict.fromkeys(reference_urls) if url_similarity.get(url, 0.0) >= threshold
-    ]
+    # Only the single most-relevant source earns a reference link — not
+    # every matched row that cleared confidence_threshold, since several
+    # topically-close pages (e.g. every sauna-heater sub-model) can each
+    # independently clear that bar for a question about the category in
+    # general, showing several links none of which is clearly THE answer.
+    # A margin-based "near the top score" cutoff was tried first and didn't
+    # help here: closely related pages score within a hair of each other, so
+    # a small margin still let all of them through. Taking only the exact
+    # top-scoring source is a deliberately strict, precision-over-recall
+    # choice — better to show no link than one that's merely "also related".
+    # A plain similarity-score comparison rather than an LLM judgment call —
+    # the LLM-based version of this check (asking the model which links were
+    # "relevant") proved inconsistent run-to-run on the same question even
+    # at temperature 0, which a deterministic score avoids.
+    unique_urls = list(dict.fromkeys(reference_urls))
+    top_url_similarity = max((url_similarity.get(url, 0.0) for url in unique_urls), default=0.0)
+    if top_url_similarity >= threshold:
+        reference_urls = [
+            url for url in unique_urls
+            if url_similarity.get(url, 0.0) >= top_url_similarity - LINK_SIMILARITY_EPSILON
+        ]
+    else:
+        reference_urls = []
 
     # best_similarity no longer gates whether we answer (the LLM already
     # judged the retrieved context sufficient), but it's still useful as a
