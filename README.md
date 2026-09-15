@@ -308,21 +308,21 @@ fields most people need to change:
 No code changes or redeploys are required — the change takes effect on the
 next chat request.
 
-**Generation model default: `google/gemma-4-31b-it:free`** — a specific,
-verified-working free model rather than OpenRouter's own opaque `openrouter/free`
-router, which was tried first but turned out to route to inconsistent-quality
-models (including, once, a response that leaked an internal safety-classifier
-tag instead of writing an actual reply).
+**Generation model default: `mistralai/mistral-nemo`**, set in
+`backend/app/core/config.py`. Whatever model string is in the Settings page
+is used exactly as configured for every generation request — there is no
+fallback list or automatic substitution to another model. A specific
+OpenRouter-router alias (`openrouter/auto` or bare `openrouter/free`) was
+tried early on and dropped: it routed to inconsistent-quality models
+(including, once, a response that leaked an internal safety-classifier tag
+instead of writing an actual reply), which is why the field expects a
+concrete model id rather than a router alias.
 
-Free-tier availability shifts over time (rate limits, models discontinued or
-renamed), so **whenever the configured model is itself a `:free` model**, a
-failed generation call automatically retries a short built-in list of other
-verified free models (`FREE_MODEL_FALLBACKS` in
-`backend/app/ai/openrouter_engine.py`) before giving up. A paid model you've
-explicitly configured is never silently swapped out. Free tiers are rate
-limited rather than billed (starts at 20 requests/min, 200/day per model;
-rises to 1,000/day once you've ever added $10+ in OpenRouter credit, which
-doesn't need to be spent).
+If you configure a `:free`-suffixed model, note that OpenRouter free tiers
+are rate limited rather than billed (starts at 20 requests/min, 200/day per
+model; rises to 1,000/day once you've ever added $10+ in OpenRouter credit,
+which doesn't need to be spent) — a failed request due to rate limiting will
+surface as an error rather than silently retrying on a different model.
 
 Every generated reply — including the off-topic small-talk redirect — is also
 sanity-checked before being shown (`_looks_like_real_reply` in
