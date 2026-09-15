@@ -20,6 +20,14 @@ from app.rag.reindex import embed_entry
 
 REFUSAL_SENTINEL = "NOT_FOUND"
 
+# How many ranked rows actually go into the generation/grounding-check
+# context, separate from top_k (which governs retrieval/ranking breadth —
+# still worth casting wide so the right content is found at all). A large
+# context feeding both the answer generation and the grounding-check calls
+# is the main driver of response latency on a free-tier model — capping it
+# here keeps that cost bounded regardless of how high top_k is configured.
+GENERATION_CONTEXT_LIMIT = 5
+
 SYSTEM_PROMPT = (
     "You are a strict helpdesk assistant. You may ONLY answer using the information "
     "in the provided context below, which comes from an internal knowledge base. "
@@ -237,6 +245,10 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
         return await _fallback(db, question, fallback_message, None, engine_used="none")
 
     (_best_kind, _best_entry), best_similarity = rows[0]
+
+    # rows is already sorted best-first, so trimming here only ever drops the
+    # weakest matches — best_similarity/best match are unaffected.
+    rows = rows[:GENERATION_CONTEXT_LIMIT]
 
     context_parts = []
     matched_faq_ids: list[int] = []

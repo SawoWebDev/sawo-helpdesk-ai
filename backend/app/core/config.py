@@ -29,11 +29,14 @@ class Settings(BaseSettings):
 
     # AI engine defaults (used only for first-boot Settings seed; live config is in DB)
     openrouter_api_key: str = ""
-    # liquid/lfm-2.5-2.6b:free — chosen for speed (~1-2s per call vs 5-10s+
-    # for larger free models), benchmarked live against OpenRouter's free
-    # model catalog. Re-verify if response quality/availability regresses;
-    # free-tier models come and go.
-    openrouter_model: str = "liquid/lfm-2.5-2.6b:free"
+    # mistralai/mistral-nemo — a cheap PAID model (~$0.02 / 1M input tokens),
+    # not a :free one. Free-tier models were tried first (see git history)
+    # but proved too unstable for a live chat product: response time for the
+    # same model swung from ~1s to 30s+ call to call, since free tiers run on
+    # unreserved, shared capacity with no SLA. A paid model on real capacity
+    # gave consistent ~0.3-0.5s responses in testing at a cost low enough
+    # that it's effectively free-tier pricing with reliability attached.
+    openrouter_model: str = "mistralai/mistral-nemo"
     openrouter_embedding_model: str = "openai/text-embedding-3-small"
 
     default_fallback_message: str = (
