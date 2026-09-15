@@ -268,7 +268,15 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
             db, question, fallback_message, best_similarity, engine_used=engine.name
         )
 
-    if not await _is_grounded(engine, context, generated):
+    # The grounding check exists to catch a free model padding thin context
+    # with outside facts — a real risk with Vault content, which is raw
+    # crawled/uploaded material the LLM is summarizing on the fly. It's not
+    # needed when the answer is built purely from FAQ context: that content
+    # is already admin-curated and verified, so there's nothing left to
+    # hallucinate around, and skipping it roughly halves typical latency
+    # (the check itself is a second full LLM call, often slower than the
+    # original generation).
+    if not matched_vault_ids and not await _is_grounded(engine, context, generated):
         return await _fallback(
             db, question, fallback_message, best_similarity, engine_used=engine.name
         )

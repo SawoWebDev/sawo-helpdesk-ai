@@ -55,6 +55,8 @@ async def _with_retry(call):
 # candidate is real before adding it (GET /api/v1/models), since OpenRouter
 # doesn't error clearly on a stale/renamed :free id — expect a 404.
 FREE_MODEL_FALLBACKS = [
+    "liquid/lfm-2.5-2.6b:free",
+    "inclusionai/ling-3.0-flash-vl:free",
     "google/gemma-4-31b-it:free",
     "google/gemma-4-26b-a4b-it:free",
     "nvidia/nemotron-3-super-120b-a12b:free",

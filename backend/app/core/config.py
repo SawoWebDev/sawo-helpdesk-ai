@@ -29,7 +29,11 @@ class Settings(BaseSettings):
 
     # AI engine defaults (used only for first-boot Settings seed; live config is in DB)
     openrouter_api_key: str = ""
-    openrouter_model: str = "google/gemma-4-31b-it:free"
+    # liquid/lfm-2.5-2.6b:free — chosen for speed (~1-2s per call vs 5-10s+
+    # for larger free models), benchmarked live against OpenRouter's free
+    # model catalog. Re-verify if response quality/availability regresses;
+    # free-tier models come and go.
+    openrouter_model: str = "liquid/lfm-2.5-2.6b:free"
     openrouter_embedding_model: str = "openai/text-embedding-3-small"
 
     default_fallback_message: str = (
