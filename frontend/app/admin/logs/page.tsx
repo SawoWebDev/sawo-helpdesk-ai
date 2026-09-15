@@ -34,7 +34,6 @@ export default function LogsPage() {
   const [clearing, setClearing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savingLogId, setSavingLogId] = useState<number | null>(null);
-  const [savedLogIds, setSavedLogIds] = useState<Set<number>>(new Set());
   const pageSize = 20;
 
   function loadLogs() {
@@ -62,12 +61,15 @@ export default function LogsPage() {
   }
 
   async function handleSaveAsFaq(log: ChatLog) {
-    if (!confirm("Save this answer as a new published FAQ entry?")) return;
+    if (!confirm("Save this answer as a new published FAQ entry? The chat log will be removed.")) return;
     setSavingLogId(log.id);
     setError(null);
     try {
       await apiPost(`/api/logs/${log.id}/save-as-faq`, {});
-      setSavedLogIds((prev) => new Set(prev).add(log.id));
+      // The backend deletes the source log once it's saved as a FAQ, so
+      // there's nothing left here to keep showing.
+      setLogs((prev) => prev.filter((l) => l.id !== log.id));
+      setTotal((prev) => prev - 1);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to save as FAQ");
     } finally {
@@ -182,7 +184,6 @@ export default function LogsPage() {
           <tbody>
             {logs.map((log) => {
               const hasMatch = log.matched_faq_ids.length > 0 || log.matched_vault_ids.length > 0;
-              const isSaved = savedLogIds.has(log.id);
               const isSaving = savingLogId === log.id;
               return (
                 <tr key={log.id} className="border-t border-slate-100 align-top">
@@ -207,10 +208,10 @@ export default function LogsPage() {
                     {hasMatch && (
                       <button
                         onClick={() => handleSaveAsFaq(log)}
-                        disabled={isSaving || isSaved}
+                        disabled={isSaving}
                         className="whitespace-nowrap text-blue-600 disabled:cursor-not-allowed disabled:text-slate-300"
                       >
-                        {isSaved ? "Saved" : isSaving ? "Saving..." : "Save as FAQ"}
+                        {isSaving ? "Saving..." : "Save as FAQ"}
                       </button>
                     )}
                   </td>

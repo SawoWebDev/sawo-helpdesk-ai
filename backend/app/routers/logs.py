@@ -72,7 +72,8 @@ async def save_log_as_faq(log_id: int, db: AsyncSession = Depends(get_db)):
     as the "was this a real answer" check. Reference URLs are reconstructed
     from the matched Vault/FAQ entries rather than stored on ChatLog itself,
     since ChatLog only keeps the ids. Published immediately, matching the
-    default for a manually-created FAQ."""
+    default for a manually-created FAQ. The source log is then deleted —
+    once it's saved as a FAQ there's nothing left to review in Chat Logs."""
     log = await db.get(ChatLog, log_id)
     if log is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat log not found")
@@ -110,6 +111,8 @@ async def save_log_as_faq(log_id: int, db: AsyncSession = Depends(get_db)):
         await embed_entry(db, entry)
     except AIEngineError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+    await db.delete(log)
     await db.commit()
     await db.refresh(entry)
     return entry
