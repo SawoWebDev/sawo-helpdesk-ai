@@ -17,11 +17,14 @@ human agent instead of guessing.
 | Keyword search | SQLite FTS5 (full-text, bm25-ranked) |
 | AI (chat + embeddings) | OpenRouter (one API key, model configurable per use) |
 | File storage | Local disk (`backend/uploads/`) |
-| Containers | Podman Compose — the required way to run the app (see below) |
+| Containers | Compose (Podman or Docker) — the required way to run the app (see below) |
 
 There is no local model runtime (no Ollama, no GPU needed) and no separate
 database server to install — SQLite lives inside the backend container. You
-do need Podman (or Docker) installed to build and run the two containers.
+do need Podman or Docker installed to build and run the two containers. **On
+Windows, prefer Docker Desktop if you need the app reachable from other
+devices on the network** — see
+[LAN Access](#lan-access-reaching-it-from-other-devices-not-just-localhost).
 
 ## How it's organized
 
@@ -125,11 +128,17 @@ cp .env.example .env      # fill in OPENROUTER_API_KEY, JWT_SECRET, admin creds
 podman compose -f deploy/podman-compose.yml --env-file .env up -d --build
 ```
 
-Docker Compose works identically with the same file:
+Docker Compose works identically with the same file (despite the filename —
+it's plain Compose YAML, nothing Podman-specific in it):
 
 ```sh
 docker compose -f deploy/podman-compose.yml --env-file .env up -d --build
 ```
+
+**If you need the app reachable from other devices on the network (not just
+`localhost`), use Docker Desktop, not Podman** — see
+[LAN Access](#lan-access-reaching-it-from-other-devices-not-just-localhost)
+below for why.
 
 Then open:
 - Public chat: http://localhost:7000
@@ -192,61 +201,99 @@ when run this way).
 
 The Compose file already publishes ports as `0.0.0.0:PORT`, which is normally
 enough for other devices on the network to reach the app via the host's IP.
-**However, Podman Desktop on Windows runs inside a WSL2 VM, and its port
-forwarder (gvproxy) only binds `127.0.0.1` on the Windows host — not the LAN-
-facing network adapter** — regardless of what `podman port` reports. The
-symptom: `http://localhost:7000` works fine on the host, but
-`http://<host-lan-ip>:7000` refuses to connect from another device. (This is a
-Podman-on-Windows/WSL2 limitation, not something specific to this app; Docker
-Desktop on Windows and native Linux Podman don't have it.)
 
-To fix it, forward the LAN interface to loopback with a Windows port proxy.
-This needs an **elevated** PowerShell window — a regular one will silently
-fail with "Access is denied" / "requires elevation":
+**On Windows, this only works reliably with Docker Desktop — not Podman.**
+Podman Desktop on Windows runs inside a WSL2 VM, and its port forwarder
+(gvproxy) only relays traffic that Windows itself recognizes as
+loopback-originated to `127.0.0.1` on the Windows host — it does not forward
+traffic arriving from the LAN-facing network adapter, regardless of what
+`podman port` reports or how the Compose ports are written. The symptom:
+`http://localhost:7000` works fine on the host, but `http://<host-lan-ip>:7000`
+resets/refuses from another device — including, confusingly, from the *same*
+machine when addressed by its own LAN IP instead of `localhost`.
 
-1. Click the **Start menu**, type `PowerShell`.
-2. You'll see "Windows PowerShell" in the results — **right-click** it (don't
-   just click/press Enter).
-3. Choose **"Run as administrator"** from the right-click menu.
-4. A **UAC prompt** will pop up asking "Do you want to allow this app to make
-   changes to your device?" — click **Yes**.
-5. A new window opens — check the title bar says **"Administrator: Windows
-   PowerShell"**.
-6. Paste both lines into that window and press Enter (adjust the ports if you
-   changed them from the Compose defaults — `7000` for frontend, `7001` for
-   backend):
+This was thoroughly tested and confirmed a hard platform limitation, not a
+config issue — none of the following fixed it: switching the Podman machine
+to rootful mode, pointing `netsh interface portproxy` at the WSL VM's real IP
+instead of `127.0.0.1`, or switching WSL to `networkingMode=mirrored` in
+`.wslconfig` (which additionally broke Podman Machine's own control
+connection and had to be reverted). Docker Desktop's WSL2 integration forwards
+LAN traffic correctly out of the box, with no extra config.
 
-```powershell
-netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=7000 connectaddress=127.0.0.1 connectport=7000
-netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=7001 connectaddress=127.0.0.1 connectport=7001
-```
+### Switching to Docker Desktop
 
-There should be no error output if it worked. In that same elevated window,
-also allow inbound traffic on those ports through Windows Firewall:
+Podman and Docker Desktop don't share image/container/volume storage, even
+though they read the same `podman-compose.yml`. If you already have data
+under Podman (FAQs, Library/Vault content, chat logs) and need to switch:
+
+1. **Back up the Podman volumes** before touching anything:
+
+   ```sh
+   podman run --rm -v deploy_db_data:/data -v "<repo-path>/backup:/backup" alpine tar czf /backup/db_data.tar.gz -C /data .
+   podman run --rm -v deploy_uploads_data:/data -v "<repo-path>/backup:/backup" alpine tar czf /backup/uploads_data.tar.gz -C /data .
+   ```
+
+2. **Stop Podman's machine** so Docker Desktop can claim the Windows
+   `docker_engine` named pipe (only one of them can hold it at a time; trying
+   to start Docker Desktop while Podman's machine is running fails with
+   *"Access is denied"* on that pipe):
+
+   ```sh
+   podman machine stop
+   ```
+
+3. **Start Docker Desktop**, then build and start the stack with it — same
+   compose file, just a different CLI:
+
+   ```sh
+   docker compose -f deploy/podman-compose.yml --env-file .env up -d --build
+   ```
+
+4. **Restore the backed-up data** into Docker's (freshly created, empty)
+   volumes of the same name:
+
+   ```sh
+   docker compose -f deploy/podman-compose.yml stop
+   docker run --rm -v deploy_db_data:/data -v "<repo-path>/backup:/backup" alpine sh -c "rm -rf /data/* && tar xzf /backup/db_data.tar.gz -C /data"
+   docker run --rm -v deploy_uploads_data:/data -v "<repo-path>/backup:/backup" alpine sh -c "rm -rf /data/* && tar xzf /backup/uploads_data.tar.gz -C /data"
+   docker compose -f deploy/podman-compose.yml --env-file .env up -d
+   ```
+
+5. If you'd previously set up `netsh interface portproxy` rules trying to work
+   around the Podman limitation, remove them — Docker Desktop binds the ports
+   directly and the old rules will otherwise block it from doing so
+   (*"ports are not available... Only one usage of each socket address..."*)
+   in an **elevated** PowerShell window:
+
+   ```powershell
+   netsh interface portproxy delete v4tov4 listenport=7000 listenaddress=0.0.0.0
+   netsh interface portproxy delete v4tov4 listenport=7001 listenaddress=0.0.0.0
+   ```
+
+Also allow inbound traffic on those ports through Windows Firewall, in that
+same elevated window, if you haven't already:
 
 ```powershell
 New-NetFirewallRule -DisplayName "Helpdesk Frontend" -Direction Inbound -Action Allow -LocalPort 7000 -Protocol TCP
 New-NetFirewallRule -DisplayName "Helpdesk Backend" -Direction Inbound -Action Allow -LocalPort 7001 -Protocol TCP
 ```
 
-To confirm the port proxy rules actually took effect, run
-`netsh interface portproxy show v4tov4` — it should list both ports; empty
-output means the commands above weren't run in an elevated window.
-
 Find your machine's LAN IP with `ipconfig` (look for the `IPv4 Address` under
-your active Wi-Fi/Ethernet adapter), then browse to
-`http://<that-ip>:7000` from another device on the same network. No app code
-changes are needed for this: the frontend's browser-facing code only ever
-calls relative `/api/*` paths, which stay same-origin against whatever host
-the page was loaded from and get proxied server-side to the backend — CORS is
-never a factor for normal use.
+your active Wi-Fi/Ethernet adapter), then browse to `http://<that-ip>:7000`
+from another device on the same network. No app code changes are needed for
+this: the frontend's browser-facing code only ever calls relative `/api/*`
+paths, which stay same-origin against whatever host the page was loaded from
+and get proxied server-side to the backend — CORS is never a factor for
+normal use.
 
-To remove the port proxy rules later:
+Podman itself doesn't need to be uninstalled — it's just not the one running
+the app's containers anymore. `podman-compose.yml` still works fine with
+Podman for plain `localhost`-only development if you prefer it there.
 
-```powershell
-netsh interface portproxy delete v4tov4 listenaddress=0.0.0.0 listenport=7000
-netsh interface portproxy delete v4tov4 listenaddress=0.0.0.0 listenport=7001
-```
+On the real deployment target (a native Linux server), none of this applies:
+Podman/Docker on Linux publish ports directly against the host's real network
+stack — there's no WSL2 VM or gvproxy translation layer in the picture at
+all, so the server's IP address works the same as `localhost` does today.
 
 ## AI Engine (OpenRouter)
 
