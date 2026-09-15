@@ -20,6 +20,9 @@ services:
       - uploads_data:/app/uploads
     ports:
       - "0.0.0.0:7001:8000"
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
 
   frontend:
     build:
