@@ -28,3 +28,6 @@ backend/uploads/*
 # IDE
 .vscode/
 .idea/
+
+# Local data backups (contain live DB dumps / credentials — never commit)
+backup/
