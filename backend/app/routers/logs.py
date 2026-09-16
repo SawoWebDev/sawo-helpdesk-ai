@@ -14,7 +14,7 @@ from app.models.faq import FAQEntry
 from app.models.user import User
 from app.models.vault_entry import VaultEntry
 from app.rag.reindex import embed_entry
-from app.schemas.chat_log import ChatLogOut
+from app.schemas.chat_log import ChatLogOut, SessionSummary
 from app.schemas.common import PaginatedResponse
 from app.schemas.faq import FAQOut
 
@@ -54,6 +54,87 @@ async def list_all(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get("/sessions", response_model=PaginatedResponse)
+async def list_sessions(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    start_at: datetime | None = Query(None, description="Only sessions active at or after this timestamp"),
+    end_at: datetime | None = Query(None, description="Only sessions active at or before this timestamp"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Chat Logs grouped by session — one row per conversation rather than
+    per message. Rows with no session_id (pre-dating this feature) are
+    excluded here; they're still visible via the flat GET / above."""
+    if start_at is not None and end_at is not None and start_at > end_at:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="start_at must be before end_at"
+        )
+
+    filters = [ChatLog.session_id.is_not(None)]
+    if start_at is not None:
+        filters.append(ChatLog.created_at >= start_at)
+    if end_at is not None:
+        filters.append(ChatLog.created_at <= end_at)
+
+    total = (
+        await db.execute(select(func.count(func.distinct(ChatLog.session_id))).where(*filters))
+    ).scalar_one()
+
+    agg_stmt = (
+        select(
+            ChatLog.session_id,
+            func.count(ChatLog.id).label("message_count"),
+            func.min(ChatLog.created_at).label("first_at"),
+            func.max(ChatLog.created_at).label("last_at"),
+        )
+        .where(*filters)
+        .group_by(ChatLog.session_id)
+        .order_by(func.max(ChatLog.created_at).desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    agg_rows = (await db.execute(agg_stmt)).all()
+    session_ids = [row.session_id for row in agg_rows]
+
+    # A separate, row-level query just for this page's sessions to get each
+    # one's first question and IP — kept apart from the aggregate query above
+    # since mixing MIN() and MAX() there makes which row a bare
+    # (non-aggregated) column like question_text would come from ambiguous.
+    first_rows: dict[str, ChatLog] = {}
+    if session_ids:
+        detail_result = await db.execute(
+            select(ChatLog)
+            .where(ChatLog.session_id.in_(session_ids))
+            .order_by(ChatLog.session_id, ChatLog.created_at.asc())
+        )
+        for log in detail_result.scalars():
+            first_rows.setdefault(log.session_id, log)
+
+    items = [
+        SessionSummary(
+            session_id=row.session_id,
+            ip_address=first_rows[row.session_id].ip_address if row.session_id in first_rows else None,
+            message_count=row.message_count,
+            first_question=first_rows[row.session_id].question_text if row.session_id in first_rows else "",
+            first_at=row.first_at,
+            last_at=row.last_at,
+        )
+        for row in agg_rows
+    ]
+    return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.get("/sessions/{session_id}", response_model=list[ChatLogOut])
+async def get_session_thread(session_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(ChatLog).where(ChatLog.session_id == session_id).order_by(ChatLog.created_at.asc())
+    )
+    items = list(result.scalars().all())
+    if not items:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    return items
 
 
 @router.delete("", status_code=status.HTTP_204_NO_CONTENT)

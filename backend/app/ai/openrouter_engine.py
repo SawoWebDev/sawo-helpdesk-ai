@@ -82,15 +82,21 @@ class OpenRouterEngine(AIEngine):
             raise AIEngineError(f"OpenRouter embedding response malformed: {exc}") from exc
 
     async def generate(
-        self, system_prompt: str, context: str, user_query: str, temperature: float | None = None
+        self,
+        system_prompt: str,
+        context: str,
+        user_query: str,
+        temperature: float | None = None,
+        history: list[tuple[str, str]] | None = None,
     ) -> str:
         if not self.api_key:
             raise AIEngineError("OpenRouter API key is not configured.")
 
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {user_query}"},
-        ]
+        messages = [{"role": "system", "content": system_prompt}]
+        for prior_question, prior_answer in history or []:
+            messages.append({"role": "user", "content": prior_question})
+            messages.append({"role": "assistant", "content": prior_answer})
+        messages.append({"role": "user", "content": f"Context:\n{context}\n\nQuestion: {user_query}"})
         payload = {"model": self.model, "messages": messages}
         if temperature is not None:
             payload["temperature"] = temperature

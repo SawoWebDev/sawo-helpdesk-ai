@@ -5,6 +5,7 @@ import ChatInput from "@/components/chat/ChatInput";
 import MessageList from "@/components/chat/MessageList";
 import { ChatMessage } from "@/components/chat/MessageBubble";
 import { apiPost } from "@/lib/api";
+import { getOrCreateSessionId } from "@/lib/session";
 
 interface ChatResponse {
   answer: string;
@@ -23,7 +24,10 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, { role: "user", text }]);
     setLoading(true);
     try {
-      const res = await apiPost<ChatResponse>("/api/chat", { question: text });
+      const res = await apiPost<ChatResponse>("/api/chat", {
+        question: text,
+        session_id: getOrCreateSessionId(),
+      });
       setMessages((prev) => [
         ...prev,
         {

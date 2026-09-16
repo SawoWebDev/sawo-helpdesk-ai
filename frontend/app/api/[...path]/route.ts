@@ -21,6 +21,13 @@ async function proxy(req: NextRequest, params: { path: string[] }) {
   req.headers.forEach((value, key) => {
     if (!HOP_BY_HOP_HEADERS.has(key.toLowerCase())) headers.set(key, value);
   });
+  // Best-effort visitor IP for the backend's chat-log grouping. There's no
+  // reverse proxy in front of this app, so req.ip (populated on platforms
+  // like Vercel) may be undefined when self-hosted — the backend already
+  // falls back to its own connection's address if this header is absent.
+  if (!headers.has("x-forwarded-for") && req.ip) {
+    headers.set("x-forwarded-for", req.ip);
+  }
 
   const hasBody = !["GET", "HEAD"].includes(req.method);
 

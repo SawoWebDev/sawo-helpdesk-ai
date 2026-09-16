@@ -13,11 +13,14 @@ class ChatLogOut(BaseModel):
     matched_vault_ids: list[int]
     confidence_score: float | None
     engine_used: str
+    session_id: str | None
+    ip_address: str | None
     created_at: datetime
 
 
 class ChatRequest(BaseModel):
     question: str
+    session_id: str
 
 
 class ChatResponse(BaseModel):
@@ -28,3 +31,12 @@ class ChatResponse(BaseModel):
     matched_vault_ids: list[int]
     image_urls: list[str]
     reference_urls: list[str]
+
+
+class SessionSummary(BaseModel):
+    session_id: str
+    ip_address: str | None
+    message_count: int
+    first_question: str
+    first_at: datetime
+    last_at: datetime

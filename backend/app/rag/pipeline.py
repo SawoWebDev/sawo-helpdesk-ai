@@ -1,5 +1,6 @@
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,6 +36,10 @@ GENERATION_CONTEXT_LIMIT = 5
 # query round and should otherwise be exactly equal.
 LINK_SIMILARITY_EPSILON = 1e-9
 
+# How many prior same-session, same-day exchanges are eligible to be pulled
+# in as conversation history for a follow-up (see answer_question below).
+CONVERSATION_HISTORY_LIMIT = 3
+
 SYSTEM_PROMPT = (
     "You are a strict helpdesk assistant. You may ONLY answer using the information "
     "in the provided context below, which comes from an internal knowledge base. "
@@ -46,6 +51,11 @@ SYSTEM_PROMPT = (
     "if it seems true or well-known — if the context doesn't say it, it is not in your "
     "answer. Do not guess, estimate, or fill gaps to make the answer sound more complete. "
     "It is better to give a short answer or refuse than to add unverified details. "
+    "You may also see earlier turns from this same conversation. Use them only if the "
+    "current question is genuinely a follow-up continuing that same topic — e.g. to "
+    "resolve a pronoun like 'it' or 'that', or to build on what was already established. "
+    "If the current question is unrelated to that earlier conversation, ignore it entirely "
+    "and answer independently using only the context below. "
     f"If none of the context is actually relevant, or it doesn't contain enough "
     f"information to answer the question, respond with exactly: {REFUSAL_SENTINEL}"
 )
@@ -170,7 +180,9 @@ class RagResult:
     low_confidence: bool = False
 
 
-async def answer_question(db: AsyncSession, question: str) -> RagResult:
+async def answer_question(
+    db: AsyncSession, question: str, session_id: str, ip_address: str | None = None
+) -> RagResult:
     settings_values = await get_all_settings(db)
     fallback_message = settings_values[keys.FALLBACK_MESSAGE]
     threshold = float(settings_values[keys.CONFIDENCE_THRESHOLD])
@@ -181,14 +193,63 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
     engine = await get_active_engine(db)
 
     if is_filler(question):
-        return await _off_topic(db, engine, question, off_topic_message, None)
+        return await _off_topic(db, engine, question, off_topic_message, None, session_id, ip_address)
 
     embedding_engine = await get_embedding_engine(db)
 
+    # Recent same-session, same-day history only — a visitor returning after
+    # a long gap, or on a different day, starts fresh rather than dragging in
+    # stale context from an unrelated earlier conversation.
+    history_rows: list[ChatLog] = []
+    if session_id:
+        today_start = datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0, tzinfo=None
+        )
+        history_result = await db.execute(
+            select(ChatLog)
+            .where(ChatLog.session_id == session_id, ChatLog.created_at >= today_start)
+            .order_by(ChatLog.created_at.desc())
+            .limit(CONVERSATION_HISTORY_LIMIT)
+        )
+        history_rows = list(history_result.scalars().all())
+
+    # A pronoun-style follow-up ("does it come in a wall-mounted model?") has
+    # almost no retrievable content on its own — verified live, it fails to
+    # surface the right KB entries and falls back even though the prior turn
+    # made the referent obvious. Embedding the previous question together
+    # with the current one gives retrieval the missing keywords, without
+    # changing what gets shown to the user or logged as the question asked.
+    # query_vector (the raw question alone) is kept separate for the
+    # auto-promote-to-FAQ duplicate check below, which must compare against
+    # what was actually asked, not this retrieval-only blend.
     try:
-        [query_vector] = await embedding_engine.embed([question])
+        if history_rows:
+            retrieval_text = f"{history_rows[0].question_text} {question}"
+            query_vector, retrieval_vector = await embedding_engine.embed([question, retrieval_text])
+        else:
+            [query_vector] = await embedding_engine.embed([question])
+            retrieval_vector = query_vector
     except AIEngineError:
-        return await _fallback(db, question, fallback_message, None, engine_used="none")
+        return await _fallback(
+            db, question, fallback_message, None, engine_used="none",
+            session_id=session_id, ip_address=ip_address,
+        )
+
+    # Whether a same-day history exists is decided deterministically above
+    # (session + calendar day); whether it's actually relevant to THIS
+    # question is left to the model itself, via the SYSTEM_PROMPT instruction
+    # to only build on prior turns when they're a genuine continuation. An
+    # embedding-similarity cutoff between the current and previous question
+    # was tried first and abandoned: on short question-to-question pairs (as
+    # opposed to question-to-KB-content, which retrieval below does well),
+    # this embedding model's scores for genuinely related and unrelated pairs
+    # overlap too much to separate with any threshold — verified live,
+    # "hello how are you" scored higher than several real follow-ups.
+    history_for_generation = (
+        [(row.question_text, row.answer_text) for row in reversed(history_rows)]
+        if history_rows
+        else None
+    )
 
     # Cast a wider net than top_k and let the LLM judge relevance over the
     # whole pool, rather than a raw similarity cutoff deciding before
@@ -197,8 +258,8 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
     # the question — the LLM reading the actual content is a better judge of
     # "is this actually useful" than vector distance alone.
     candidate_k = max(top_k * 3, top_k + 5)
-    faq_hits = await knn_search(db, FAQ_VEC_TABLE, query_vector, candidate_k)
-    vault_hits = await knn_search(db, VAULT_VEC_TABLE, query_vector, candidate_k)
+    faq_hits = await knn_search(db, FAQ_VEC_TABLE, retrieval_vector, candidate_k)
+    vault_hits = await knn_search(db, VAULT_VEC_TABLE, retrieval_vector, candidate_k)
 
     faq_ids = [entry_id for entry_id, _ in faq_hits]
     faq_by_id = {
@@ -248,8 +309,11 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
 
     if not rows:
         if not await _is_on_topic(engine, question):
-            return await _off_topic(db, engine, question, off_topic_message, None)
-        return await _fallback(db, question, fallback_message, None, engine_used="none")
+            return await _off_topic(db, engine, question, off_topic_message, None, session_id, ip_address)
+        return await _fallback(
+            db, question, fallback_message, None, engine_used="none",
+            session_id=session_id, ip_address=ip_address,
+        )
 
     (_best_kind, _best_entry), best_similarity = rows[0]
 
@@ -280,15 +344,19 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
     context = "\n\n".join(context_parts)
 
     try:
-        generated = await engine.generate(SYSTEM_PROMPT, context, question, temperature=0)
+        generated = await engine.generate(
+            SYSTEM_PROMPT, context, question, temperature=0, history=history_for_generation
+        )
     except AIEngineError:
         return await _fallback(
-            db, question, fallback_message, best_similarity, engine_used=engine.name
+            db, question, fallback_message, best_similarity, engine_used=engine.name,
+            session_id=session_id, ip_address=ip_address,
         )
 
     if not generated or REFUSAL_SENTINEL in generated:
         return await _fallback(
-            db, question, fallback_message, best_similarity, engine_used=engine.name
+            db, question, fallback_message, best_similarity, engine_used=engine.name,
+            session_id=session_id, ip_address=ip_address,
         )
 
     # The grounding check exists to catch a free model padding thin context
@@ -301,7 +369,8 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
     # original generation).
     if not matched_vault_ids and not await _is_grounded(engine, context, generated):
         return await _fallback(
-            db, question, fallback_message, best_similarity, engine_used=engine.name
+            db, question, fallback_message, best_similarity, engine_used=engine.name,
+            session_id=session_id, ip_address=ip_address,
         )
 
     generated = _sanitize_text(generated)
@@ -344,6 +413,8 @@ async def answer_question(db: AsyncSession, question: str) -> RagResult:
         matched_vault_ids=matched_vault_ids,
         confidence_score=best_similarity,
         engine_used=engine.name,
+        session_id=session_id,
+        ip_address=ip_address,
     )
     db.add(chat_log)
     await db.commit()
@@ -396,6 +467,8 @@ async def _off_topic(
     question: str,
     off_topic_message: str,
     confidence_score: float | None,
+    session_id: str | None = None,
+    ip_address: str | None = None,
 ) -> RagResult:
     """For chatter/small talk with no meaningful match to any FAQ (below the
     off-topic threshold): redirect to product/technical support without
@@ -421,6 +494,8 @@ async def _off_topic(
         matched_faq_ids=[],
         confidence_score=confidence_score,
         engine_used=engine_used,
+        session_id=session_id,
+        ip_address=ip_address,
     )
     db.add(chat_log)
     await db.commit()
@@ -440,6 +515,8 @@ async def _fallback(
     fallback_message: str,
     confidence_score: float | None,
     engine_used: str,
+    session_id: str | None = None,
+    ip_address: str | None = None,
 ) -> RagResult:
     other_category = await get_or_create_other_category(db)
     unanswered = UnansweredQuestion(
@@ -456,6 +533,8 @@ async def _fallback(
         matched_faq_ids=[],
         confidence_score=confidence_score,
         engine_used=engine_used,
+        session_id=session_id,
+        ip_address=ip_address,
     )
     db.add(chat_log)
     await db.commit()

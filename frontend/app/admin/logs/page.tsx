@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 import Pagination from "@/components/admin/Pagination";
@@ -13,7 +13,18 @@ interface ChatLog {
   matched_vault_ids: number[];
   confidence_score: number | null;
   engine_used: string;
+  session_id: string | null;
+  ip_address: string | null;
   created_at: string;
+}
+
+interface SessionSummary {
+  session_id: string;
+  ip_address: string | null;
+  message_count: number;
+  first_question: string;
+  first_at: string;
+  last_at: string;
 }
 
 interface Paginated<T> {
@@ -25,7 +36,7 @@ type FilterMode = "none" | "onward" | "range";
 
 export default function LogsPage() {
   const { user } = useCurrentUser();
-  const [logs, setLogs] = useState<ChatLog[]>([]);
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [filterMode, setFilterMode] = useState<FilterMode>("none");
@@ -34,9 +45,12 @@ export default function LogsPage() {
   const [clearing, setClearing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savingLogId, setSavingLogId] = useState<number | null>(null);
+  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+  const [threadMessages, setThreadMessages] = useState<ChatLog[] | null>(null);
+  const [threadLoading, setThreadLoading] = useState(false);
   const pageSize = 20;
 
-  function loadLogs() {
+  function loadSessions() {
     const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
     if (filterMode === "onward" && startAt) {
       params.set("start_at", new Date(startAt).toISOString());
@@ -45,13 +59,13 @@ export default function LogsPage() {
       if (startAt) params.set("start_at", new Date(startAt).toISOString());
       if (endAt) params.set("end_at", new Date(endAt).toISOString());
     }
-    apiGet<Paginated<ChatLog>>(`/api/logs?${params.toString()}`).then((data) => {
-      setLogs(data.items);
+    apiGet<Paginated<SessionSummary>>(`/api/logs/sessions?${params.toString()}`).then((data) => {
+      setSessions(data.items);
       setTotal(data.total);
     });
   }
 
-  useEffect(loadLogs, [page, filterMode, startAt, endAt]);
+  useEffect(loadSessions, [page, filterMode, startAt, endAt]);
 
   function handleModeChange(mode: FilterMode) {
     setFilterMode(mode);
@@ -60,16 +74,31 @@ export default function LogsPage() {
     setPage(1);
   }
 
+  async function toggleSession(sessionId: string) {
+    if (expandedSessionId === sessionId) {
+      setExpandedSessionId(null);
+      setThreadMessages(null);
+      return;
+    }
+    setExpandedSessionId(sessionId);
+    setThreadMessages(null);
+    setThreadLoading(true);
+    try {
+      const data = await apiGet<ChatLog[]>(`/api/logs/sessions/${encodeURIComponent(sessionId)}`);
+      setThreadMessages(data);
+    } finally {
+      setThreadLoading(false);
+    }
+  }
+
   async function handleSaveAsFaq(log: ChatLog) {
     if (!confirm("Save this answer as a new published FAQ entry? The chat log will be removed.")) return;
     setSavingLogId(log.id);
     setError(null);
     try {
       await apiPost(`/api/logs/${log.id}/save-as-faq`, {});
-      // The backend deletes the source log once it's saved as a FAQ, so
-      // there's nothing left here to keep showing.
-      setLogs((prev) => prev.filter((l) => l.id !== log.id));
-      setTotal((prev) => prev - 1);
+      setThreadMessages((prev) => (prev ? prev.filter((l) => l.id !== log.id) : prev));
+      loadSessions();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to save as FAQ");
     } finally {
@@ -84,7 +113,9 @@ export default function LogsPage() {
     try {
       await apiDelete("/api/logs");
       setPage(1);
-      loadLogs();
+      setExpandedSessionId(null);
+      setThreadMessages(null);
+      loadSessions();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to clear logs");
     } finally {
@@ -172,55 +203,96 @@ export default function LogsPage() {
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-slate-500">
             <tr>
-              <th className="px-4 py-2">Question</th>
-              <th className="px-4 py-2">Answer</th>
-              <th className="px-4 py-2">Confidence</th>
-              <th className="px-4 py-2">Sources</th>
-              <th className="px-4 py-2">Engine</th>
-              <th className="px-4 py-2">Time</th>
               <th className="px-4 py-2"></th>
+              <th className="px-4 py-2">First Question</th>
+              <th className="px-4 py-2">IP</th>
+              <th className="px-4 py-2">Messages</th>
+              <th className="px-4 py-2">Started</th>
+              <th className="px-4 py-2">Last Activity</th>
             </tr>
           </thead>
           <tbody>
-            {logs.map((log) => {
-              const hasMatch = log.matched_faq_ids.length > 0 || log.matched_vault_ids.length > 0;
-              const isSaving = savingLogId === log.id;
+            {sessions.map((session) => {
+              const isExpanded = expandedSessionId === session.session_id;
               return (
-                <tr key={log.id} className="border-t border-slate-100 align-top">
-                  <td className="max-w-xs px-4 py-2">{log.question_text}</td>
-                  <td className="max-w-xs truncate px-4 py-2">{log.answer_text}</td>
-                  <td className="px-4 py-2">
-                    {log.confidence_score !== null ? log.confidence_score.toFixed(2) : "—"}
-                  </td>
-                  <td className="px-4 py-2 text-slate-500">
-                    {!hasMatch
-                      ? "—"
-                      : [
-                          log.matched_faq_ids.length > 0 ? `${log.matched_faq_ids.length} FAQ` : null,
-                          log.matched_vault_ids.length > 0 ? `${log.matched_vault_ids.length} Vault` : null,
-                        ]
-                          .filter(Boolean)
-                          .join(", ")}
-                  </td>
-                  <td className="px-4 py-2">{log.engine_used}</td>
-                  <td className="px-4 py-2 text-slate-500">{new Date(log.created_at).toLocaleString()}</td>
-                  <td className="px-4 py-2 text-right">
-                    {hasMatch && (
-                      <button
-                        onClick={() => handleSaveAsFaq(log)}
-                        disabled={isSaving}
-                        className="whitespace-nowrap text-blue-600 disabled:cursor-not-allowed disabled:text-slate-300"
-                      >
-                        {isSaving ? "Saving..." : "Save as FAQ"}
-                      </button>
-                    )}
-                  </td>
-                </tr>
+                <Fragment key={session.session_id}>
+                  <tr
+                    onClick={() => toggleSession(session.session_id)}
+                    className="cursor-pointer border-t border-slate-100 align-top hover:bg-slate-50"
+                  >
+                    <td className="px-4 py-2 text-slate-400">{isExpanded ? "▾" : "▸"}</td>
+                    <td className="max-w-xs px-4 py-2">{session.first_question}</td>
+                    <td className="px-4 py-2 text-slate-500">{session.ip_address || "unknown"}</td>
+                    <td className="px-4 py-2">{session.message_count}</td>
+                    <td className="px-4 py-2 text-slate-500">{new Date(session.first_at).toLocaleString()}</td>
+                    <td className="px-4 py-2 text-slate-500">{new Date(session.last_at).toLocaleString()}</td>
+                  </tr>
+                  {isExpanded && (
+                    <tr className="border-t border-slate-100 bg-slate-50">
+                      <td colSpan={6} className="px-4 py-3">
+                        {threadLoading && <p className="text-xs text-slate-400">Loading conversation...</p>}
+                        {!threadLoading && threadMessages && threadMessages.length === 0 && (
+                          <p className="text-xs text-slate-400">No messages left in this conversation.</p>
+                        )}
+                        {!threadLoading && threadMessages && threadMessages.length > 0 && (
+                          <div className="flex flex-col gap-3">
+                            {threadMessages.map((log) => {
+                              const hasMatch = log.matched_faq_ids.length > 0 || log.matched_vault_ids.length > 0;
+                              const isSaving = savingLogId === log.id;
+                              return (
+                                <div key={log.id} className="rounded border border-slate-200 bg-white p-3">
+                                  <div className="mb-1 flex items-start justify-between gap-2">
+                                    <p className="text-sm font-medium text-slate-800">{log.question_text}</p>
+                                    <span className="shrink-0 text-xs text-slate-400">
+                                      {new Date(log.created_at).toLocaleString()}
+                                    </span>
+                                  </div>
+                                  <p className="mb-2 text-sm text-slate-600">{log.answer_text}</p>
+                                  <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                                    <span>
+                                      Confidence:{" "}
+                                      {log.confidence_score !== null ? log.confidence_score.toFixed(2) : "—"}
+                                    </span>
+                                    <span>
+                                      Sources:{" "}
+                                      {!hasMatch
+                                        ? "—"
+                                        : [
+                                            log.matched_faq_ids.length > 0
+                                              ? `${log.matched_faq_ids.length} FAQ`
+                                              : null,
+                                            log.matched_vault_ids.length > 0
+                                              ? `${log.matched_vault_ids.length} Vault`
+                                              : null,
+                                          ]
+                                            .filter(Boolean)
+                                            .join(", ")}
+                                    </span>
+                                    <span>Engine: {log.engine_used}</span>
+                                    {hasMatch && (
+                                      <button
+                                        onClick={() => handleSaveAsFaq(log)}
+                                        disabled={isSaving}
+                                        className="ml-auto text-blue-600 disabled:cursor-not-allowed disabled:text-slate-300"
+                                      >
+                                        {isSaving ? "Saving..." : "Save as FAQ"}
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               );
             })}
-            {logs.length === 0 && (
+            {sessions.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={6} className="px-4 py-6 text-center text-slate-400">
                   No chat logs found for this filter.
                 </td>
               </tr>
