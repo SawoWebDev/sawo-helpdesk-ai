@@ -21,6 +21,7 @@ from app.routers import (
     users,
     vault,
 )
+from app.services.harvest_resume import schedule_resume_pending_sources
 
 app = FastAPI(title="Helpdesk RAG API")
 
@@ -52,6 +53,11 @@ app.include_router(admin.router)
 app.include_router(vault.router)
 app.include_router(library.router)
 app.include_router(usage.router)
+
+
+@app.on_event("startup")
+async def _resume_pending_library_sources() -> None:
+    schedule_resume_pending_sources()
 
 
 @app.get("/api/health")

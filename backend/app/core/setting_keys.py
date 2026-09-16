@@ -6,6 +6,7 @@ CONFIDENCE_THRESHOLD = "confidence_threshold"
 TOP_K = "top_k"
 OFF_TOPIC_THRESHOLD = "off_topic_threshold"
 OFF_TOPIC_MESSAGE = "off_topic_message"
+MAX_SITEMAP_URLS = "max_sitemap_urls"
 
 ADMIN_ONLY_KEYS = {
     OPENROUTER_API_KEY,
@@ -24,4 +25,5 @@ ALL_KEYS = {
     TOP_K,
     OFF_TOPIC_THRESHOLD,
     OFF_TOPIC_MESSAGE,
+    MAX_SITEMAP_URLS,
 }

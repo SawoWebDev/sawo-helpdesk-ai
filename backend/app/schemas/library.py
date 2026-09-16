@@ -57,14 +57,17 @@ class SitemapDiscoverRequest(BaseModel):
 
 
 class SitemapDiscoverResponse(BaseModel):
-    urls: list[str]
+    urls: list[str]  # the real total the sitemap lists — never capped
+    # The current max_sitemap_urls setting: how many of `urls` can actually
+    # be queued in one crawl-batch request, not a limit on `urls` itself.
+    max_crawl_urls: int
 
 
 class LibraryCrawlBatchRequest(BaseModel):
     # Hard ceiling matching the max allowed value of the max_sitemap_urls
     # setting; the actual enforced limit is that setting's current value,
     # checked at runtime in the crawl_batch route.
-    urls: list[str] = Field(min_length=1, max_length=100_000)
+    urls: list[str] = Field(min_length=1, max_length=100_000_000)
     category_id: int | None = None
     new_category_name: str | None = None
 

@@ -1,11 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.base import AIEngineError
 from app.ai.factory import get_embedding_engine
-from app.core.deps import require_agent_or_admin
+from app.core.deps import require_admin, require_agent_or_admin
 from app.crud.faq import create_faq, delete_faq, find_duplicate_faq, get_faq, list_faqs
 from app.db.session import get_db
+from app.db.vec_store import FAQ_VEC_TABLE
+from app.models.faq import FAQEntry
+from app.models.user import User
 from app.rag.reindex import embed_entry
 from app.schemas.common import PaginatedResponse
 from app.schemas.faq import FAQCreate, FAQOut, FAQUpdate
@@ -71,6 +75,16 @@ async def create(payload: FAQCreate, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(entry)
     return entry
+
+
+@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_all_faqs(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    await db.execute(text(f"DELETE FROM {FAQ_VEC_TABLE}"))
+    await db.execute(FAQEntry.__table__.delete())
+    await db.commit()
 
 
 @router.put("/{faq_id}", response_model=FAQOut)

@@ -5,6 +5,12 @@ import { apiDelete, apiGet, apiPost, apiPut, getToken, ApiError } from "@/lib/ap
 import CategorySelect, { CategoryOption } from "@/components/admin/CategorySelect";
 import Pagination from "@/components/admin/Pagination";
 
+// Above this many discovered URLs, rendering one checkbox row per URL would
+// put hundreds of thousands of DOM nodes on the page and freeze the browser
+// tab — so the itemized list is hidden and only the aggregate Select
+// All/None control is shown instead.
+const LARGE_DISCOVERY_THRESHOLD = 500;
+
 interface LibrarySource {
   id: number;
   source_type: "file" | "url";
@@ -148,6 +154,9 @@ export default function LibraryPage() {
 
   const [expandedJobId, setExpandedJobId] = useState<number | null>(null);
   const [jobSources, setJobSources] = useState<LibrarySource[] | null>(null);
+  const [jobSourcesTotal, setJobSourcesTotal] = useState(0);
+  const [jobSourcesPage, setJobSourcesPage] = useState(1);
+  const jobSourcesPageSize = 20;
   const [jobSourcesLoading, setJobSourcesLoading] = useState(false);
   const [jobSourcesFilter, setJobSourcesFilter] = useState<string | null>(null);
 
@@ -165,6 +174,10 @@ export default function LibraryPage() {
 
   const [discovering, setDiscovering] = useState(false);
   const [discoveredUrls, setDiscoveredUrls] = useState<string[] | null>(null);
+  // How many of the discovered URLs can actually be queued in one crawl
+  // batch (the max_sitemap_urls setting) — a cap on crawling, not on how
+  // many pages the sitemap actually lists.
+  const [maxCrawlUrls, setMaxCrawlUrls] = useState<number | null>(null);
   const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
 
   const [submitting, setSubmitting] = useState(false);
@@ -191,16 +204,19 @@ export default function LibraryPage() {
     setTotal(data.total);
     // If a batch row is expanded, its child statuses may have changed too.
     if (expandedJobId !== null) {
-      await loadJobSources(expandedJobId, jobSourcesFilter);
+      await loadJobSources(expandedJobId, jobSourcesFilter, jobSourcesPage);
     }
   }
 
-  async function loadJobSources(jobId: number, statusFilter: string | null) {
+  async function loadJobSources(jobId: number, statusFilter: string | null, pageNum: number = 1) {
     setJobSourcesLoading(true);
     try {
-      const params = statusFilter ? `?status=${encodeURIComponent(statusFilter)}` : "";
-      const data = await apiGet<LibrarySource[]>(`/api/library/jobs/${jobId}/sources${params}`);
-      setJobSources(data);
+      const params = new URLSearchParams({ page: String(pageNum), page_size: String(jobSourcesPageSize) });
+      if (statusFilter) params.set("status", statusFilter);
+      const data = await apiGet<Paginated<LibrarySource>>(`/api/library/jobs/${jobId}/sources?${params.toString()}`);
+      setJobSources(data.items);
+      setJobSourcesTotal(data.total);
+      setJobSourcesPage(pageNum);
     } finally {
       setJobSourcesLoading(false);
     }
@@ -215,7 +231,7 @@ export default function LibraryPage() {
     setExpandedJobId(jobId);
     setJobSourcesFilter(null);
     setJobSources(null);
-    await loadJobSources(jobId, null);
+    await loadJobSources(jobId, null, 1);
   }
 
   // Clicking a specific status badge (e.g. "1 failed") narrows the expanded
@@ -231,7 +247,7 @@ export default function LibraryPage() {
     setExpandedJobId(jobId);
     setJobSourcesFilter(statusFilter);
     setJobSources(null);
-    await loadJobSources(jobId, statusFilter);
+    await loadJobSources(jobId, statusFilter, 1);
   }
 
   useEffect(() => {
@@ -329,9 +345,14 @@ export default function LibraryPage() {
     setError(null);
     setMessage(null);
     setDiscoveredUrls(null);
+    setMaxCrawlUrls(null);
     try {
-      const data = await apiPost<{ urls: string[] }>("/api/library/discover-sitemap", { url: crawlUrl.trim() });
+      const data = await apiPost<{ urls: string[]; max_crawl_urls: number }>(
+        "/api/library/discover-sitemap",
+        { url: crawlUrl.trim() }
+      );
       setDiscoveredUrls(data.urls);
+      setMaxCrawlUrls(data.max_crawl_urls);
       setSelectedUrls(new Set(data.urls));
       if (data.urls.length === 0) {
         setMessage("Sitemap found, but it listed no pages.");
@@ -360,6 +381,13 @@ export default function LibraryPage() {
   async function handleCrawlSelected() {
     const urls = Array.from(selectedUrls);
     if (urls.length === 0) return;
+    if (maxCrawlUrls !== null && urls.length > maxCrawlUrls) {
+      setError(
+        `You can crawl at most ${maxCrawlUrls} pages per batch (Settings > General > Max Sitemap URLs). ` +
+          `${urls.length} are selected — deselect ${urls.length - maxCrawlUrls} more.`
+      );
+      return;
+    }
     setSubmitting(true);
     setError(null);
     setMessage(null);
@@ -371,6 +399,7 @@ export default function LibraryPage() {
       });
       setMessage(`Queued ${data.queued} page(s) for crawling.`);
       setDiscoveredUrls(null);
+      setMaxCrawlUrls(null);
       setSelectedUrls(new Set());
       setCrawlUrl("");
       setNewCategoryName("");
@@ -386,7 +415,7 @@ export default function LibraryPage() {
   async function handleDelete(source: LibrarySource) {
     if (!confirm("Delete this Library source and its indexed content?")) return;
     await apiDelete(`/api/library/sources/${source.id}`);
-    if (expandedJobId !== null) await loadJobSources(expandedJobId, jobSourcesFilter);
+    if (expandedJobId !== null) await loadJobSources(expandedJobId, jobSourcesFilter, jobSourcesPage);
     await loadSources();
   }
 
@@ -402,7 +431,7 @@ export default function LibraryPage() {
     setError(null);
     try {
       await apiPost(`/api/library/sources/${source.id}/retry`, {});
-      if (expandedJobId !== null) await loadJobSources(expandedJobId, jobSourcesFilter);
+      if (expandedJobId !== null) await loadJobSources(expandedJobId, jobSourcesFilter, jobSourcesPage);
       await loadSources();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to retry source");
@@ -421,7 +450,7 @@ export default function LibraryPage() {
       // the pages that were just queued are still visible.
       if (expandedJobId === batch.job_id) {
         setJobSourcesFilter(null);
-        await loadJobSources(batch.job_id, null);
+        await loadJobSources(batch.job_id, null, 1);
       }
       await loadSources();
     } catch (err) {
@@ -586,27 +615,46 @@ export default function LibraryPage() {
                   <button
                     type="button"
                     onClick={handleCrawlSelected}
-                    disabled={submitting || selectedUrls.size === 0}
+                    disabled={
+                      submitting ||
+                      selectedUrls.size === 0 ||
+                      (maxCrawlUrls !== null && selectedUrls.size > maxCrawlUrls)
+                    }
                     className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
                   >
                     {submitting ? "Queuing..." : `Crawl ${selectedUrls.size} Selected`}
                   </button>
                 </div>
-                <div className="max-h-64 overflow-y-auto rounded border border-slate-100">
-                  {discoveredUrls.map((url) => (
-                    <label
-                      key={url}
-                      className="flex items-center gap-2 border-t border-slate-50 px-3 py-1.5 text-sm text-slate-600 first:border-t-0 hover:bg-slate-50"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedUrls.has(url)}
-                        onChange={() => toggleUrlSelected(url)}
-                      />
-                      <span className="truncate">{url}</span>
-                    </label>
-                  ))}
-                </div>
+                {maxCrawlUrls !== null && selectedUrls.size > maxCrawlUrls && (
+                  <p className="mb-2 text-xs text-amber-600">
+                    You can crawl at most {maxCrawlUrls.toLocaleString()} pages per batch (Settings &gt; General
+                    &gt; Max Sitemap URLs) — deselect {(selectedUrls.size - maxCrawlUrls).toLocaleString()} more to
+                    continue.
+                  </p>
+                )}
+                {discoveredUrls.length > LARGE_DISCOVERY_THRESHOLD ? (
+                  <p className="rounded border border-slate-100 px-3 py-2 text-xs text-slate-400">
+                    The individual page list isn&apos;t shown for sites this large (
+                    {discoveredUrls.length.toLocaleString()} pages) — rendering every row would freeze the
+                    browser tab. Use the checkbox above to select all or none.
+                  </p>
+                ) : (
+                  <div className="max-h-64 overflow-y-auto rounded border border-slate-100">
+                    {discoveredUrls.map((url) => (
+                      <label
+                        key={url}
+                        className="flex items-center gap-2 border-t border-slate-50 px-3 py-1.5 text-sm text-slate-600 first:border-t-0 hover:bg-slate-50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedUrls.has(url)}
+                          onChange={() => toggleUrlSelected(url)}
+                        />
+                        <span className="truncate">{url}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -900,7 +948,7 @@ export default function LibraryPage() {
                                   e.stopPropagation();
                                   setJobSourcesFilter(null);
                                   setJobSources(null);
-                                  loadJobSources(b.job_id, null);
+                                  loadJobSources(b.job_id, null, 1);
                                 }}
                                 className="text-blue-600"
                               >
@@ -915,21 +963,33 @@ export default function LibraryPage() {
                             <p className="px-8 py-3 text-xs text-slate-400">No pages match this filter.</p>
                           )}
                           {!jobSourcesLoading && jobSources && jobSources.length > 0 && (
-                            <table className="w-full text-sm">
-                              <tbody>
-                                {jobSources.map((s) => (
-                                  <SourceRow
-                                    key={`job-source-${s.id}`}
-                                    source={s}
-                                    categoryName={categoryName}
-                                    onDelete={handleDelete}
-                                    onRetry={handleRetry}
-                                    retrying={retryingSourceId === s.id}
-                                    indent
+                            <>
+                              <table className="w-full text-sm">
+                                <tbody>
+                                  {jobSources.map((s) => (
+                                    <SourceRow
+                                      key={`job-source-${s.id}`}
+                                      source={s}
+                                      categoryName={categoryName}
+                                      onDelete={handleDelete}
+                                      onRetry={handleRetry}
+                                      retrying={retryingSourceId === s.id}
+                                      indent
+                                    />
+                                  ))}
+                                </tbody>
+                              </table>
+                              {jobSourcesTotal > jobSourcesPageSize && (
+                                <div className="px-8 py-2" onClick={(e) => e.stopPropagation()}>
+                                  <Pagination
+                                    page={jobSourcesPage}
+                                    pageSize={jobSourcesPageSize}
+                                    total={jobSourcesTotal}
+                                    onPageChange={(p) => loadJobSources(b.job_id, jobSourcesFilter, p)}
                                   />
-                                ))}
-                              </tbody>
-                            </table>
+                                </div>
+                              )}
+                            </>
                           )}
                         </td>
                       </tr>

@@ -95,7 +95,6 @@ async def fetch_url(url: str) -> tuple[str, str]:
 
 SITEMAP_PATHS = ("/sitemap.xml", "/sitemap_index.xml", "/wp-sitemap.xml")
 MAX_SITEMAP_DOCS = 50  # cap how many nested sitemap files a sitemap index can point to
-MAX_SITEMAP_URLS = 2000  # cap total page URLs collected, so a huge site can't hang ingestion
 
 
 async def _fetch_xml(client: httpx.AsyncClient, url: str) -> str | None:
@@ -127,8 +126,12 @@ def _parse_sitemap_xml(xml_text: str) -> tuple[list[str], list[str]]:
 async def discover_sitemap_urls(site_url: str) -> list[str]:
     """Given any URL on a site, finds and fully expands that site's sitemap
     (following sitemap-index nesting, common with WordPress/Yoast SEO) and
-    returns every page URL it lists. Raises ParseError if no sitemap could be
-    found at any of the standard locations."""
+    returns every page URL it lists — the real total, not capped by the
+    max_sitemap_urls setting (that setting only gates how many of these can
+    be queued in one crawl batch — see routers/library.py:crawl_batch).
+    Nested-sitemap-index traversal is still bounded by MAX_SITEMAP_DOCS so a
+    pathological sitemap index can't hang this call. Raises ParseError if no
+    sitemap could be found at any of the standard locations."""
     parsed = httpx.URL(site_url)
     origin = f"{parsed.scheme}://{parsed.host}"
 
@@ -151,7 +154,7 @@ async def discover_sitemap_urls(site_url: str) -> list[str]:
         visited_docs = 1
 
         queue = list(nested)
-        while queue and visited_docs < MAX_SITEMAP_DOCS and len(all_pages) < MAX_SITEMAP_URLS:
+        while queue and visited_docs < MAX_SITEMAP_DOCS:
             doc_url = queue.pop(0)
             xml_text = await _fetch_xml(client, doc_url)
             visited_docs += 1
@@ -161,14 +164,14 @@ async def discover_sitemap_urls(site_url: str) -> list[str]:
             all_pages.extend(sub_pages)
             queue.extend(sub_nested)
 
-    # De-duplicate while preserving discovery order, and cap the final count.
+    # De-duplicate while preserving discovery order.
     seen: set[str] = set()
     ordered_unique: list[str] = []
     for url in all_pages:
         if url not in seen:
             seen.add(url)
             ordered_unique.append(url)
-    return ordered_unique[:MAX_SITEMAP_URLS]
+    return ordered_unique
 
 
 def extract_text_for_file(filename: str, data: bytes) -> str:

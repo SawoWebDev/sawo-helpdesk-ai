@@ -25,6 +25,15 @@ async def _setup_connection(raw_connection) -> None:
     await raw_connection.load_extension(sqlite_vec.loadable_path())
     await raw_connection.enable_load_extension(False)
     await raw_connection.execute("PRAGMA foreign_keys = ON")
+    # Without these, a single writer (e.g. a Library crawl committing one
+    # chunk at a time) locks the whole database file for every other
+    # connection. WAL lets readers and a writer run concurrently instead of
+    # blocking each other; busy_timeout makes a writer-vs-writer collision
+    # retry for a few seconds instead of failing immediately with "database
+    # is locked" — which is what was breaking live chat while a big crawl
+    # batch was running.
+    await raw_connection.execute("PRAGMA journal_mode = WAL")
+    await raw_connection.execute("PRAGMA busy_timeout = 30000")
 
 
 @event.listens_for(engine.sync_engine, "connect")

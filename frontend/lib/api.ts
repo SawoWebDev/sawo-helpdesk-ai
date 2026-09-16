@@ -21,6 +21,21 @@ export class ApiError extends Error {
   }
 }
 
+// FastAPI validation errors (422) send `detail` as a list of {msg, loc, input,
+// ...} objects. `input` can echo back the entire offending payload (e.g. a
+// long URL list), so JSON.stringify-ing the raw detail can produce a huge
+// wall of text. Pull out just the human-readable messages instead.
+function formatErrorDetail(detail: unknown, fallback: string): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => (item && typeof item === "object" && "msg" in item ? String(item.msg) : null))
+      .filter((msg): msg is string => Boolean(msg));
+    if (messages.length > 0) return messages.join("; ");
+  }
+  return fallback;
+}
+
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
   const headers = new Headers(options.headers);
@@ -32,14 +47,14 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   const res = await fetch(path, { ...options, headers });
 
   if (!res.ok) {
-    let detail = res.statusText;
+    let detail: unknown = res.statusText;
     try {
       const data = await res.json();
-      detail = data.detail || detail;
+      detail = data.detail ?? detail;
     } catch {
       // ignore body parse failure
     }
-    throw new ApiError(res.status, typeof detail === "string" ? detail : JSON.stringify(detail));
+    throw new ApiError(res.status, formatErrorDetail(detail, res.statusText));
   }
 
   if (res.status === 204) return undefined as T;
@@ -72,14 +87,14 @@ export async function downloadFile(path: string, filename: string): Promise<void
 
   const res = await fetch(path, { headers });
   if (!res.ok) {
-    let detail = res.statusText;
+    let detail: unknown = res.statusText;
     try {
       const data = await res.json();
-      detail = data.detail || detail;
+      detail = data.detail ?? detail;
     } catch {
       // ignore body parse failure
     }
-    throw new ApiError(res.status, typeof detail === "string" ? detail : JSON.stringify(detail));
+    throw new ApiError(res.status, formatErrorDetail(detail, res.statusText));
   }
 
   const blob = await res.blob();

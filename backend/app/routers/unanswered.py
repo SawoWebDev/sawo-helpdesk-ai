@@ -5,10 +5,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.base import AIEngineError
-from app.core.deps import require_agent_or_admin
+from app.core.deps import require_admin, require_agent_or_admin
 from app.crud.faq import create_faq
 from app.db.session import get_db
 from app.models.unanswered import UnansweredQuestion
+from app.models.user import User
 from app.rag.reindex import embed_entry
 from app.schemas.common import PaginatedResponse
 from app.schemas.unanswered import (
@@ -68,6 +69,15 @@ async def list_all(
         page=page,
         page_size=page_size,
     )
+
+
+@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_all_unanswered(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    await db.execute(UnansweredQuestion.__table__.delete())
+    await db.commit()
 
 
 @router.put("/{question_id}/category", response_model=UnansweredOut)

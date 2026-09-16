@@ -14,6 +14,7 @@ DEFAULTS: dict[str, str] = {
     keys.TOP_K: str(env_settings.default_top_k),
     keys.OFF_TOPIC_THRESHOLD: str(env_settings.default_off_topic_threshold),
     keys.OFF_TOPIC_MESSAGE: env_settings.default_off_topic_message,
+    keys.MAX_SITEMAP_URLS: str(env_settings.default_max_sitemap_urls),
 }
 
 

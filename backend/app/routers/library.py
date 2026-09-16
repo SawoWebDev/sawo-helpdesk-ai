@@ -2,16 +2,20 @@ import os
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, UploadFile, status
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.base import AIEngineError
 from app.ai.factory import get_active_engine, get_embedding_engine
+from app.core import setting_keys
 from app.core.config import settings
-from app.core.deps import require_agent_or_admin
+from app.core.deps import require_admin, require_agent_or_admin
 from app.crud.category import create_category, get_category, get_category_by_name
 from app.crud.harvest import (
+    count_sources_by_job,
     create_job,
     create_source,
+    create_sources_bulk,
     delete_job_and_sources,
     delete_source,
     get_job,
@@ -20,9 +24,14 @@ from app.crud.harvest import (
     list_sources_grouped,
     rename_job,
 )
+from app.crud.settings import get_setting
 from app.crud.vault import keyword_search_vault, semantic_search_vault
 from app.db.session import get_db
+from app.db.vec_store import VAULT_VEC_TABLE
+from app.models.harvest_job import HarvestJob
+from app.models.harvest_source import HarvestSource
 from app.models.user import User
+from app.models.vault_entry import VaultEntry
 from app.rag.pipeline import REFUSAL_SENTINEL, SYSTEM_PROMPT, _is_grounded, _sanitize_text
 from app.schemas.common import PaginatedResponse
 from app.schemas.library import (
@@ -40,7 +49,11 @@ from app.schemas.library import (
     SitemapDiscoverRequest,
     SitemapDiscoverResponse,
 )
-from app.services.library_ingest import process_file_source, process_url_source
+from app.services.library_ingest import (
+    process_file_source,
+    process_sources_concurrently,
+    process_url_source,
+)
 from app.services.library_parsers import ParseError, discover_sitemap_urls
 
 # How many top-ranked chunks (by combined keyword+semantic score) get sent to
@@ -71,6 +84,18 @@ async def _resolve_category(db: AsyncSession, category_id: int | None, new_categ
 # NOTE: /sources, /upload, /crawl, /search are static paths and MUST be
 # declared before /sources/{source_id} below (same gotcha as
 # imports.router vs faqs.router in main.py).
+@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_all_library(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    await db.execute(text(f"DELETE FROM {VAULT_VEC_TABLE}"))
+    await db.execute(VaultEntry.__table__.delete())
+    await db.execute(HarvestSource.__table__.delete())
+    await db.execute(HarvestJob.__table__.delete())
+    await db.commit()
+
+
 @router.get("/sources", response_model=PaginatedResponse)
 async def list_all_sources(
     page: int = Query(1, ge=1),
@@ -90,12 +115,19 @@ async def list_all_sources(
     return PaginatedResponse(items=items, total=total, page=page, page_size=page_size)
 
 
-@router.get("/jobs/{job_id}/sources", response_model=list[LibrarySourceOut])
+@router.get("/jobs/{job_id}/sources", response_model=PaginatedResponse)
 async def list_job_sources(
-    job_id: int, status_filter: str | None = Query(None, alias="status"), db: AsyncSession = Depends(get_db)
+    job_id: int,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    status_filter: str | None = Query(None, alias="status"),
+    db: AsyncSession = Depends(get_db),
 ):
-    sources = await get_sources_by_job(db, job_id, status_filter=status_filter)
-    return [LibrarySourceOut.model_validate(s) for s in sources]
+    total = await count_sources_by_job(db, job_id, status_filter=status_filter)
+    sources = await get_sources_by_job(db, job_id, status_filter=status_filter, page=page, page_size=page_size)
+    return PaginatedResponse(
+        items=[LibrarySourceOut.model_validate(s) for s in sources], total=total, page=page, page_size=page_size
+    )
 
 
 @router.delete("/jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -187,14 +219,15 @@ async def crawl(
 
 
 @router.post("/discover-sitemap", response_model=SitemapDiscoverResponse)
-async def discover_sitemap(payload: SitemapDiscoverRequest):
+async def discover_sitemap(payload: SitemapDiscoverRequest, db: AsyncSession = Depends(get_db)):
     if not payload.url.strip().lower().startswith(("http://", "https://")):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="URL must start with http:// or https://")
+    max_urls = int(await get_setting(db, setting_keys.MAX_SITEMAP_URLS))
     try:
         urls = await discover_sitemap_urls(payload.url.strip())
     except ParseError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    return SitemapDiscoverResponse(urls=urls)
+    return SitemapDiscoverResponse(urls=urls, max_crawl_urls=max_urls)
 
 
 @router.post("/crawl-batch", response_model=LibraryCrawlBatchResponse, status_code=status.HTTP_201_CREATED)
@@ -208,25 +241,29 @@ async def crawl_batch(
     if not valid_urls:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No valid http(s) URLs provided")
 
+    max_urls = int(await get_setting(db, setting_keys.MAX_SITEMAP_URLS))
+    if len(valid_urls) > max_urls:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"You can crawl at most {max_urls} pages per batch (Settings > General > Max Sitemap URLs). "
+            f"{len(valid_urls)} were selected — deselect some or raise the limit.",
+        )
+
     resolved_category_id = await _resolve_category(db, payload.category_id, payload.new_category_name)
 
     job = await create_job(
         db, job_type="web_crawl_batch", config={"url_count": len(valid_urls)}, created_by_id=user.id
     )
 
-    source_ids: list[int] = []
-    for url in valid_urls:
-        source = await create_source(
-            db,
-            job_id=job.id,
-            source_type="url",
-            category_id=resolved_category_id,
-            origin_url=url,
-        )
-        source_ids.append(source.id)
-        background_tasks.add_task(process_url_source, source.id)
+    # One bulk insert/commit for all sources, not one per URL — see
+    # create_sources_bulk's docstring. Processed by a single background task
+    # that runs a bounded pool of workers concurrently (see
+    # process_sources_concurrently) rather than one strictly sequential
+    # chain, so a huge batch doesn't take an impractically long time.
+    sources = await create_sources_bulk(db, job.id, resolved_category_id, valid_urls)
+    background_tasks.add_task(process_sources_concurrently, [(s.id, "url") for s in sources])
 
-    return LibraryCrawlBatchResponse(queued=len(source_ids), source_ids=source_ids)
+    return LibraryCrawlBatchResponse(queued=len(sources), source_ids=[s.id for s in sources])
 
 
 @router.post("/search", response_model=LibrarySearchResponse)
@@ -314,7 +351,7 @@ async def get_one_source(source_id: int, db: AsyncSession = Depends(get_db)):
     return source
 
 
-def _queue_retry(background_tasks: BackgroundTasks, source) -> None:
+def _queue_retry(background_tasks: BackgroundTasks, source: HarvestSource) -> None:
     if source.source_type == "file":
         background_tasks.add_task(process_file_source, source.id)
     else:
@@ -356,8 +393,9 @@ async def retry_library_job(job_id: int, background_tasks: BackgroundTasks, db: 
         source.error_message = None
     await db.commit()
 
-    for source in failed:
-        _queue_retry(background_tasks, source)
+    background_tasks.add_task(
+        process_sources_concurrently, [(s.id, s.source_type) for s in failed]
+    )
 
 
 @router.delete("/sources/{source_id}", status_code=status.HTTP_204_NO_CONTENT)

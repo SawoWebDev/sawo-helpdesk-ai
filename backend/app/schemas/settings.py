@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SettingsOut(BaseModel):
@@ -10,6 +10,7 @@ class SettingsOut(BaseModel):
     top_k: int
     off_topic_threshold: float
     off_topic_message: str
+    max_sitemap_urls: int
 
 
 class SettingsUpdate(BaseModel):
@@ -21,3 +22,4 @@ class SettingsUpdate(BaseModel):
     top_k: int | None = None
     off_topic_threshold: float | None = None
     off_topic_message: str | None = None
+    max_sitemap_urls: int | None = Field(default=None, ge=10, le=100_000_000)

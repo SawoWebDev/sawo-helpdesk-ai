@@ -8,6 +8,8 @@ sent.
 Library content is searched live by RAG, not pre-digested into FAQ entries —
 FAQ is a separate, admin-curated Q&A source."""
 
+import asyncio
+import logging
 from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +27,16 @@ from app.services.library_parsers import (
     extract_text_for_file,
     fetch_url,
 )
+
+logger = logging.getLogger(__name__)
+
+# How many sources process at once instead of one strictly sequential chain.
+# Each one is still its own independent fetch + embed + DB-write cycle (own
+# AsyncSessionLocal — see process_url_source/process_file_source), so this is
+# safe to run concurrently; it's capped rather than unbounded so a huge batch
+# doesn't hammer the crawled site or the embedding API with thousands of
+# simultaneous requests.
+DEFAULT_CRAWL_CONCURRENCY = 5
 
 
 async def _mark_failed(db: AsyncSession, source: HarvestSource, message: str) -> None:
@@ -45,7 +57,11 @@ async def process_file_source(source_id: int) -> None:
         try:
             with open(source.file_path, "rb") as f:
                 data = f.read()
-            text = extract_text_for_file(source.original_filename or "", data)
+            # PDF/DOCX/XLSX parsing is synchronous CPU work — run it off the
+            # event loop so it can't stall other requests (chat included)
+            # while a large batch is being ingested. Same reasoning as the
+            # HTML extraction in process_url_source below.
+            text = await asyncio.to_thread(extract_text_for_file, source.original_filename or "", data)
         except (ParseError, OSError) as exc:
             await _mark_failed(db, source, str(exc))
             return
@@ -72,7 +88,14 @@ async def process_url_source(source_id: int) -> None:
             await _mark_failed(db, source, str(exc))
             return
 
-        text = extract_html_text(html)
+        # BeautifulSoup/lxml parsing is synchronous CPU work. Run it in a
+        # worker thread rather than inline: this function runs sequentially,
+        # one page at a time, for potentially tens of thousands of pages in a
+        # batch, and every millisecond spent parsing HTML inline blocks the
+        # single event loop this process shares with live chat requests —
+        # which is what was making chat intermittently time out while a big
+        # crawl was in progress.
+        text = await asyncio.to_thread(extract_html_text, html)
         await _ingest_text(db, source, text, title_prefix=final_url or source.origin_url or "Web page")
 
 
@@ -118,3 +141,29 @@ async def _ingest_text(db: AsyncSession, source: HarvestSource, text: str, title
     source.status = "indexed"
     source.processed_at = datetime.now(timezone.utc)
     await db.commit()
+
+
+async def process_sources_concurrently(
+    sources: list[tuple[int, str]], concurrency: int = DEFAULT_CRAWL_CONCURRENCY
+) -> None:
+    """Processes many sources at once, bounded by `concurrency` workers
+    running in parallel — a batch can be tens of thousands of pages, and
+    running them one strictly-sequential chain (the previous behavior) would
+    take an impractically long time to finish. `sources` is a list of
+    (source_id, source_type) pairs. One failing/erroring source never stops
+    the rest — each is isolated and logged independently, same as the
+    per-source failure handling process_url_source/process_file_source
+    already do internally."""
+    semaphore = asyncio.Semaphore(concurrency)
+
+    async def _run_one(source_id: int, source_type: str) -> None:
+        async with semaphore:
+            try:
+                if source_type == "file":
+                    await process_file_source(source_id)
+                else:
+                    await process_url_source(source_id)
+            except Exception:
+                logger.exception("Failed to process Library source %d", source_id)
+
+    await asyncio.gather(*(_run_one(source_id, source_type) for source_id, source_type in sources))

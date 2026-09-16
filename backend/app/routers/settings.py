@@ -23,6 +23,7 @@ def _to_out(values: dict[str, str]) -> SettingsOut:
         top_k=int(values.get(keys.TOP_K, "5")),
         off_topic_threshold=float(values.get(keys.OFF_TOPIC_THRESHOLD, "0.4")),
         off_topic_message=values.get(keys.OFF_TOPIC_MESSAGE, ""),
+        max_sitemap_urls=int(values.get(keys.MAX_SITEMAP_URLS, "10000")),
     )
 
 
@@ -44,6 +45,7 @@ async def update_settings(payload: SettingsUpdate, db: AsyncSession = Depends(ge
         "top_k": keys.TOP_K,
         "off_topic_threshold": keys.OFF_TOPIC_THRESHOLD,
         "off_topic_message": keys.OFF_TOPIC_MESSAGE,
+        "max_sitemap_urls": keys.MAX_SITEMAP_URLS,
     }
 
     for field_name, key in field_to_key.items():

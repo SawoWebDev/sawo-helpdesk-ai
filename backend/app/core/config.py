@@ -57,6 +57,10 @@ class Settings(BaseSettings):
         "I'm here to help with product and technical support questions — "
         "what can I help you with?"
     )
+    # Cap on total page URLs collected from a site's sitemap during "Discover
+    # All Pages" (see library_parsers.discover_sitemap_urls), so a huge site
+    # can't hang ingestion. Admin-adjustable within [10, 100_000_000].
+    default_max_sitemap_urls: int = 10_000
 
     embedding_dimensions: int = 1536
 

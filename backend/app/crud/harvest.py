@@ -53,6 +53,23 @@ async def create_source(
     return source
 
 
+async def create_sources_bulk(
+    db: AsyncSession, job_id: int | None, category_id: int | None, origin_urls: list[str]
+) -> list[HarvestSource]:
+    """Same as create_source (source_type="url", status="pending") for many
+    URLs at once, but with a single flush/commit instead of one round-trip
+    per row — a batch crawl can be tens of thousands of URLs, and committing
+    each individually would mean that many separate DB transactions before
+    the request can even return."""
+    sources = [
+        HarvestSource(job_id=job_id, source_type="url", category_id=category_id, origin_url=url, status="pending")
+        for url in origin_urls
+    ]
+    db.add_all(sources)
+    await db.commit()
+    return sources
+
+
 async def get_source(db: AsyncSession, source_id: int) -> HarvestSource | None:
     result = await db.execute(select(HarvestSource).where(HarvestSource.id == source_id))
     return result.scalar_one_or_none()
@@ -203,13 +220,41 @@ def _common_origin_label(sources: list[HarvestSource]) -> str:
 
 
 async def get_sources_by_job(
-    db: AsyncSession, job_id: int, status_filter: str | None = None
+    db: AsyncSession,
+    job_id: int,
+    status_filter: str | None = None,
+    page: int | None = None,
+    page_size: int | None = None,
 ) -> list[HarvestSource]:
+    """`page`/`page_size` omitted (the default) returns every matching source
+    — needed by callers that must act on the whole set (retry-all, delete-job
+    cleanup). The admin-facing listing endpoint below passes them, since a
+    batch can be huge (tens of thousands of pages) and rendering every row
+    at once would freeze the browser."""
     stmt = select(HarvestSource).where(HarvestSource.job_id == job_id)
     if status_filter is not None:
         stmt = stmt.where(HarvestSource.status == status_filter)
-    result = await db.execute(stmt.order_by(HarvestSource.origin_url))
+    # Ordered by id (== insertion order == the order background tasks were
+    # queued in, since create_sources_bulk inserts in list order and crawl
+    # tasks are queued in that same loop) rather than alphabetically by URL.
+    # That way this list's top-to-bottom order matches actual crawl progress
+    # — pending flips to indexed moving down the page — instead of an
+    # alphabetical slice that may never show any movement, since crawl order
+    # has nothing to do with URL alphabetical order.
+    stmt = stmt.order_by(HarvestSource.id)
+    if page is not None and page_size is not None:
+        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+    result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+async def count_sources_by_job(db: AsyncSession, job_id: int, status_filter: str | None = None) -> int:
+    from sqlalchemy import func
+
+    stmt = select(func.count(HarvestSource.id)).where(HarvestSource.job_id == job_id)
+    if status_filter is not None:
+        stmt = stmt.where(HarvestSource.status == status_filter)
+    return (await db.execute(stmt)).scalar_one()
 
 
 async def delete_source(db: AsyncSession, source: HarvestSource) -> None:
