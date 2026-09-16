@@ -11,6 +11,12 @@ class HarvestJob(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     job_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    # Admin-assigned override for the batch's display name in the Library
+    # Source list (see list_sources_grouped) — None falls back to the
+    # auto-derived shared-hostname/page-count label. Only the batch (parent)
+    # row is nameable this way; individual pages under it keep showing their
+    # real crawled URL.
+    label: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="queued", server_default="queued")
     config: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
     total_items: Mapped[int | None] = mapped_column(Integer, nullable=True)

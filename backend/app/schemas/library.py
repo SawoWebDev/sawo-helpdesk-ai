@@ -19,6 +19,11 @@ class LibrarySourceOut(BaseModel):
     processed_at: datetime | None
 
 
+class LibraryJobRenameRequest(BaseModel):
+    # Blank/omitted clears the override and reverts to the auto-derived label.
+    label: str | None = None
+
+
 class LibraryCrawlRequest(BaseModel):
     url: str
     category_id: int | None = None
@@ -56,7 +61,10 @@ class SitemapDiscoverResponse(BaseModel):
 
 
 class LibraryCrawlBatchRequest(BaseModel):
-    urls: list[str] = Field(min_length=1, max_length=500)
+    # Hard ceiling matching the max allowed value of the max_sitemap_urls
+    # setting; the actual enforced limit is that setting's current value,
+    # checked at runtime in the crawl_batch route.
+    urls: list[str] = Field(min_length=1, max_length=100_000)
     category_id: int | None = None
     new_category_name: str | None = None
 

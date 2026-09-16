@@ -14,9 +14,11 @@ from app.crud.harvest import (
     create_source,
     delete_job_and_sources,
     delete_source,
+    get_job,
     get_sources_by_job,
     get_source,
     list_sources_grouped,
+    rename_job,
 )
 from app.crud.vault import keyword_search_vault, semantic_search_vault
 from app.db.session import get_db
@@ -29,6 +31,7 @@ from app.schemas.library import (
     LibraryCrawlBatchRequest,
     LibraryCrawlBatchResponse,
     LibraryCrawlRequest,
+    LibraryJobRenameRequest,
     LibraryRowOut,
     LibrarySearchRequest,
     LibrarySearchResult,
@@ -88,8 +91,10 @@ async def list_all_sources(
 
 
 @router.get("/jobs/{job_id}/sources", response_model=list[LibrarySourceOut])
-async def list_job_sources(job_id: int, db: AsyncSession = Depends(get_db)):
-    sources = await get_sources_by_job(db, job_id)
+async def list_job_sources(
+    job_id: int, status_filter: str | None = Query(None, alias="status"), db: AsyncSession = Depends(get_db)
+):
+    sources = await get_sources_by_job(db, job_id, status_filter=status_filter)
     return [LibrarySourceOut.model_validate(s) for s in sources]
 
 
@@ -98,6 +103,17 @@ async def delete_library_job(job_id: int, db: AsyncSession = Depends(get_db)):
     deleted = await delete_job_and_sources(db, job_id)
     if deleted == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Batch job not found or already empty")
+
+
+@router.put("/jobs/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def rename_library_job(job_id: int, payload: LibraryJobRenameRequest, db: AsyncSession = Depends(get_db)):
+    """Renames a batch crawl's parent row in the Library Source list. Only
+    the batch itself is nameable this way — individual pages within it keep
+    showing their real crawled URL, not an editable label."""
+    job = await get_job(db, job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Batch job not found")
+    await rename_job(db, job, payload.label)
 
 
 @router.post("/upload", response_model=LibrarySourceOut, status_code=status.HTTP_201_CREATED)
@@ -296,6 +312,52 @@ async def get_one_source(source_id: int, db: AsyncSession = Depends(get_db)):
     if source is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Library source not found")
     return source
+
+
+def _queue_retry(background_tasks: BackgroundTasks, source) -> None:
+    if source.source_type == "file":
+        background_tasks.add_task(process_file_source, source.id)
+    else:
+        background_tasks.add_task(process_url_source, source.id)
+
+
+@router.post("/sources/{source_id}/retry", response_model=LibrarySourceOut)
+async def retry_library_source(
+    source_id: int, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)
+):
+    """Re-runs ingestion for a failed source. Safe to re-run from scratch: a
+    failed source never got as far as creating any VaultEntry chunks (the
+    embed call that would produce them happens before any are stored), so
+    there's nothing stale left behind to clean up first."""
+    source = await get_source(db, source_id)
+    if source is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Library source not found")
+    if source.status != "failed":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only a failed source can be retried")
+
+    source.status = "pending"
+    source.error_message = None
+    await db.commit()
+    await db.refresh(source)
+
+    _queue_retry(background_tasks, source)
+    return source
+
+
+@router.post("/jobs/{job_id}/retry", status_code=status.HTTP_204_NO_CONTENT)
+async def retry_library_job(job_id: int, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+    """Retries every failed page in a batch crawl at once."""
+    failed = await get_sources_by_job(db, job_id, status_filter="failed")
+    if not failed:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No failed pages to retry in this batch")
+
+    for source in failed:
+        source.status = "pending"
+        source.error_message = None
+    await db.commit()
+
+    for source in failed:
+        _queue_retry(background_tasks, source)
 
 
 @router.delete("/sources/{source_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -18,6 +18,15 @@ async def get_job(db: AsyncSession, job_id: int) -> HarvestJob | None:
     return result.scalar_one_or_none()
 
 
+async def rename_job(db: AsyncSession, job: HarvestJob, label: str | None) -> HarvestJob:
+    """Sets or clears the batch's display-name override. `label=None` (or
+    blank) reverts the row to its auto-derived label on the next listing."""
+    job.label = label.strip() if label and label.strip() else None
+    await db.commit()
+    await db.refresh(job)
+    return job
+
+
 async def create_source(
     db: AsyncSession,
     job_id: int | None,
@@ -137,6 +146,7 @@ async def list_sources_grouped(
                 "is_batch": is_batch,
                 "job_id": job.id if job else None,
                 "job_type": job.job_type if job else None,
+                "label": job.label if job else None,
                 "created_at": source.created_at,
                 "sources": [],
             }
@@ -166,7 +176,7 @@ async def list_sources_grouped(
                     "pending_count": statuses.count("pending") + statuses.count("processing"),
                     "category_id": sources[0].category_id if sources else None,
                     "created_at": group["created_at"],
-                    "origin_label": _common_origin_label(sources),
+                    "origin_label": group["label"] or _common_origin_label(sources),
                 }
             )
         else:
@@ -192,10 +202,13 @@ def _common_origin_label(sources: list[HarvestSource]) -> str:
     return f"{len(sources)} pages"
 
 
-async def get_sources_by_job(db: AsyncSession, job_id: int) -> list[HarvestSource]:
-    result = await db.execute(
-        select(HarvestSource).where(HarvestSource.job_id == job_id).order_by(HarvestSource.origin_url)
-    )
+async def get_sources_by_job(
+    db: AsyncSession, job_id: int, status_filter: str | None = None
+) -> list[HarvestSource]:
+    stmt = select(HarvestSource).where(HarvestSource.job_id == job_id)
+    if status_filter is not None:
+        stmt = stmt.where(HarvestSource.status == status_filter)
+    result = await db.execute(stmt.order_by(HarvestSource.origin_url))
     return list(result.scalars().all())
 
 

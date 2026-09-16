@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, FormEvent, useEffect, useState } from "react";
-import { apiDelete, apiGet, apiPost, getToken, ApiError } from "@/lib/api";
+import { apiDelete, apiGet, apiPost, apiPut, getToken, ApiError } from "@/lib/api";
 import CategorySelect, { CategoryOption } from "@/components/admin/CategorySelect";
 import Pagination from "@/components/admin/Pagination";
 
@@ -78,11 +78,15 @@ function SourceRow({
   source: s,
   categoryName,
   onDelete,
+  onRetry,
+  retrying,
   indent,
 }: {
   source: LibrarySource;
   categoryName: (id: number | null) => string;
   onDelete: (source: LibrarySource) => void;
+  onRetry: (source: LibrarySource) => void;
+  retrying: boolean;
   indent: boolean;
 }) {
   return (
@@ -102,6 +106,15 @@ function SourceRow({
         )}
       </td>
       <td className="px-4 py-2 text-right">
+        {s.status === "failed" && (
+          <button
+            onClick={() => onRetry(s)}
+            disabled={retrying}
+            className="mr-3 text-blue-600 disabled:cursor-not-allowed disabled:text-slate-300"
+          >
+            {retrying ? "Retrying..." : "Retry"}
+          </button>
+        )}
         <button onClick={() => onDelete(s)} className="text-red-600">
           Delete
         </button>
@@ -136,6 +149,13 @@ export default function LibraryPage() {
   const [expandedJobId, setExpandedJobId] = useState<number | null>(null);
   const [jobSources, setJobSources] = useState<LibrarySource[] | null>(null);
   const [jobSourcesLoading, setJobSourcesLoading] = useState(false);
+  const [jobSourcesFilter, setJobSourcesFilter] = useState<string | null>(null);
+
+  const [renamingJobId, setRenamingJobId] = useState<number | null>(null);
+  const [renameLabel, setRenameLabel] = useState("");
+
+  const [retryingSourceId, setRetryingSourceId] = useState<number | null>(null);
+  const [retryingJobId, setRetryingJobId] = useState<number | null>(null);
 
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -171,14 +191,15 @@ export default function LibraryPage() {
     setTotal(data.total);
     // If a batch row is expanded, its child statuses may have changed too.
     if (expandedJobId !== null) {
-      await loadJobSources(expandedJobId);
+      await loadJobSources(expandedJobId, jobSourcesFilter);
     }
   }
 
-  async function loadJobSources(jobId: number) {
+  async function loadJobSources(jobId: number, statusFilter: string | null) {
     setJobSourcesLoading(true);
     try {
-      const data = await apiGet<LibrarySource[]>(`/api/library/jobs/${jobId}/sources`);
+      const params = statusFilter ? `?status=${encodeURIComponent(statusFilter)}` : "";
+      const data = await apiGet<LibrarySource[]>(`/api/library/jobs/${jobId}/sources${params}`);
       setJobSources(data);
     } finally {
       setJobSourcesLoading(false);
@@ -186,14 +207,31 @@ export default function LibraryPage() {
   }
 
   async function toggleJob(jobId: number) {
-    if (expandedJobId === jobId) {
+    if (expandedJobId === jobId && jobSourcesFilter === null) {
       setExpandedJobId(null);
       setJobSources(null);
       return;
     }
     setExpandedJobId(jobId);
+    setJobSourcesFilter(null);
     setJobSources(null);
-    await loadJobSources(jobId);
+    await loadJobSources(jobId, null);
+  }
+
+  // Clicking a specific status badge (e.g. "1 failed") narrows the expanded
+  // list to just that status — with a batch that can have thousands of
+  // pages, loading everything just to find the one that failed isn't
+  // practical. Clicking the same badge again collapses it.
+  async function filterJobSources(jobId: number, statusFilter: string) {
+    if (expandedJobId === jobId && jobSourcesFilter === statusFilter) {
+      setExpandedJobId(null);
+      setJobSources(null);
+      return;
+    }
+    setExpandedJobId(jobId);
+    setJobSourcesFilter(statusFilter);
+    setJobSources(null);
+    await loadJobSources(jobId, statusFilter);
   }
 
   useEffect(() => {
@@ -348,8 +386,49 @@ export default function LibraryPage() {
   async function handleDelete(source: LibrarySource) {
     if (!confirm("Delete this Library source and its indexed content?")) return;
     await apiDelete(`/api/library/sources/${source.id}`);
-    if (expandedJobId !== null) await loadJobSources(expandedJobId);
+    if (expandedJobId !== null) await loadJobSources(expandedJobId, jobSourcesFilter);
     await loadSources();
+  }
+
+  async function handleRenameBatch(batch: LibraryBatchSummary) {
+    if (!renameLabel.trim()) return;
+    await apiPut(`/api/library/jobs/${batch.job_id}`, { label: renameLabel.trim() });
+    setRenamingJobId(null);
+    await loadSources();
+  }
+
+  async function handleRetry(source: LibrarySource) {
+    setRetryingSourceId(source.id);
+    setError(null);
+    try {
+      await apiPost(`/api/library/sources/${source.id}/retry`, {});
+      if (expandedJobId !== null) await loadJobSources(expandedJobId, jobSourcesFilter);
+      await loadSources();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to retry source");
+    } finally {
+      setRetryingSourceId(null);
+    }
+  }
+
+  async function handleRetryBatch(batch: LibraryBatchSummary) {
+    setRetryingJobId(batch.job_id);
+    setError(null);
+    try {
+      await apiPost(`/api/library/jobs/${batch.job_id}/retry`, {});
+      // The retried pages just moved from failed -> pending, so re-fetching
+      // under a "failed" filter would now show nothing; switch to "all" so
+      // the pages that were just queued are still visible.
+      if (expandedJobId === batch.job_id) {
+        setJobSourcesFilter(null);
+        await loadJobSources(batch.job_id, null);
+      }
+      await loadSources();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to retry batch");
+    } finally {
+      setRetryingJobId(null);
+    }
   }
 
   async function handleDeleteBatch(batch: LibraryBatchSummary) {
@@ -675,6 +754,8 @@ export default function LibraryPage() {
                     source={s}
                     categoryName={categoryName}
                     onDelete={handleDelete}
+                    onRetry={handleRetry}
+                    retrying={retryingSourceId === s.id}
                     indent={false}
                   />
                 );
@@ -686,29 +767,115 @@ export default function LibraryPage() {
                   <Fragment key={`batch-${b.job_id}`}>
                     <tr onClick={() => toggleJob(b.job_id)} className="cursor-pointer border-t border-slate-100 hover:bg-slate-50">
                       <td className="max-w-xs truncate px-4 py-2" title={b.origin_label}>
-                        <span className="mr-2 text-slate-400">{isExpanded ? "▾" : "▸"}</span>
-                        <span className="font-medium text-slate-800">{b.origin_label}</span>
-                        <span className="ml-2 text-xs text-slate-400">({b.source_count} pages)</span>
+                        {renamingJobId === b.job_id ? (
+                          <input
+                            autoFocus
+                            value={renameLabel}
+                            onChange={(e) => setRenameLabel(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleRenameBatch(b);
+                              if (e.key === "Escape") setRenamingJobId(null);
+                            }}
+                            className="rounded border border-slate-300 px-2 py-1 text-sm"
+                          />
+                        ) : (
+                          <>
+                            <span className="mr-2 text-slate-400">{isExpanded ? "▾" : "▸"}</span>
+                            <span className="font-medium text-slate-800">{b.origin_label}</span>
+                            <span className="ml-2 text-xs text-slate-400">({b.source_count} pages)</span>
+                          </>
+                        )}
                       </td>
                       <td className="px-4 py-2 text-slate-500">{categoryName(b.category_id)}</td>
                       <td className="px-4 py-2 text-slate-500">—</td>
                       <td className="px-4 py-2 text-slate-500">{new Date(b.created_at).toLocaleDateString()}</td>
                       <td className="px-4 py-2">
-                        <span className="rounded bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            filterJobSources(b.job_id, "indexed");
+                          }}
+                          className={`rounded px-2 py-0.5 text-xs font-medium ${
+                            isExpanded && jobSourcesFilter === "indexed"
+                              ? "bg-green-600 text-white"
+                              : "bg-green-50 text-green-700 hover:bg-green-100"
+                          }`}
+                        >
                           {b.indexed_count} indexed
-                        </span>
+                        </button>
                         {b.pending_count > 0 && (
+                          // Not clickable-to-filter like the others: this
+                          // count combines "pending" + "processing" sources,
+                          // but the backend filter matches a single status
+                          // column value, so filtering on "pending" alone
+                          // would silently hide the "processing" ones.
                           <span className="ml-1 rounded bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
                             {b.pending_count} pending
                           </span>
                         )}
                         {b.failed_count > 0 && (
-                          <span className="ml-1 rounded bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              filterJobSources(b.job_id, "failed");
+                            }}
+                            className={`ml-1 rounded px-2 py-0.5 text-xs font-medium ${
+                              isExpanded && jobSourcesFilter === "failed"
+                                ? "bg-red-600 text-white"
+                                : "bg-red-50 text-red-700 hover:bg-red-100"
+                            }`}
+                          >
                             {b.failed_count} failed
-                          </span>
+                          </button>
                         )}
                       </td>
                       <td className="px-4 py-2 text-right">
+                        {renamingJobId === b.job_id ? (
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRenameBatch(b);
+                              }}
+                              className="mr-2 text-blue-600"
+                            >
+                              Save
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setRenamingJobId(null);
+                              }}
+                              className="mr-3 text-slate-500"
+                            >
+                              Cancel
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRenamingJobId(b.job_id);
+                              setRenameLabel(b.origin_label);
+                            }}
+                            className="mr-3 text-blue-600"
+                          >
+                            Rename
+                          </button>
+                        )}
+                        {b.failed_count > 0 && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRetryBatch(b);
+                            }}
+                            disabled={retryingJobId === b.job_id}
+                            className="mr-3 text-blue-600 disabled:cursor-not-allowed disabled:text-slate-300"
+                          >
+                            {retryingJobId === b.job_id ? "Retrying..." : "Retry Failed"}
+                          </button>
+                        )}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -723,10 +890,31 @@ export default function LibraryPage() {
                     {isExpanded && (
                       <tr className="border-t border-slate-100 bg-slate-50">
                         <td colSpan={6} className="p-0">
+                          {jobSourcesFilter && (
+                            <div className="flex items-center justify-between px-8 py-2 text-xs text-slate-500">
+                              <span>
+                                Showing <span className="font-medium">{jobSourcesFilter}</span> pages only
+                              </span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setJobSourcesFilter(null);
+                                  setJobSources(null);
+                                  loadJobSources(b.job_id, null);
+                                }}
+                                className="text-blue-600"
+                              >
+                                Show all
+                              </button>
+                            </div>
+                          )}
                           {jobSourcesLoading && (
                             <p className="px-8 py-3 text-xs text-slate-400">Loading pages...</p>
                           )}
-                          {!jobSourcesLoading && jobSources && (
+                          {!jobSourcesLoading && jobSources && jobSources.length === 0 && (
+                            <p className="px-8 py-3 text-xs text-slate-400">No pages match this filter.</p>
+                          )}
+                          {!jobSourcesLoading && jobSources && jobSources.length > 0 && (
                             <table className="w-full text-sm">
                               <tbody>
                                 {jobSources.map((s) => (
@@ -735,6 +923,8 @@ export default function LibraryPage() {
                                     source={s}
                                     categoryName={categoryName}
                                     onDelete={handleDelete}
+                                    onRetry={handleRetry}
+                                    retrying={retryingSourceId === s.id}
                                     indent
                                   />
                                 ))}
