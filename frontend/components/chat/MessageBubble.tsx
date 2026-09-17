@@ -1,6 +1,7 @@
 "use client";
 
 import ReactMarkdown from "react-markdown";
+import BotAvatar from "./BotAvatar";
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -8,55 +9,73 @@ export interface ChatMessage {
   isFallback?: boolean;
   imageUrls?: string[];
   referenceUrls?: string[];
+  time?: string;
 }
 
 export default function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div
-        className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
-          isUser
-            ? "bg-blue-600 text-white"
-            : message.isFallback
-              ? "bg-amber-50 text-amber-900 border border-amber-200"
-              : "bg-white text-slate-800 border border-slate-200"
-        }`}
-      >
-        <div className="prose prose-sm max-w-none prose-p:my-1">
-          <ReactMarkdown>{message.text}</ReactMarkdown>
+    <div className={`flex items-start gap-2 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
+      {isUser ? (
+        <div className="glass glass-3d glass-edge relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent bg-gradient-to-br from-sawo-light to-sawo-dark text-[10px] font-bold text-white">
+          You
         </div>
+      ) : (
+        <BotAvatar />
+      )}
 
-        {message.imageUrls && message.imageUrls.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {message.imageUrls.map((url) => (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                key={url}
-                src={url}
-                alt="Reference"
-                className="max-h-40 rounded-lg border border-slate-200 object-cover"
-              />
-            ))}
+      <div className={`flex max-w-[80%] flex-col ${isUser ? "items-end" : "items-start"}`}>
+        <div
+          className={`rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed shadow-sm ${
+            isUser
+              ? "glass glass-user glass-soft glass-edge glass-edge-soft relative rounded-tr-[4px] border border-transparent bg-gradient-to-br from-sawo-light to-sawo-dark font-medium text-white"
+              : message.isFallback
+                ? "rounded-tl-[4px] border border-amber-200 bg-amber-50 font-medium text-amber-900 dark:border-amber-300/25 dark:bg-amber-400/10 dark:text-amber-100 dark:backdrop-blur-xl"
+                : "glass glass-soft glass-edge glass-edge-soft relative rounded-tl-[4px] border border-transparent bg-white font-medium text-[#2a2420] dark:text-slate-100"
+          }`}
+        >
+          <div
+            className={`prose prose-sm max-w-none prose-p:my-1 prose-a:font-semibold prose-a:no-underline prose-a:underline-offset-2 hover:prose-a:underline ${
+              isUser ? "prose-invert prose-a:text-white" : "prose-a:text-sawo dark:prose-invert dark:prose-a:text-sawo-light"
+            }`}
+          >
+            <ReactMarkdown>{message.text}</ReactMarkdown>
           </div>
-        )}
 
-        {message.referenceUrls && message.referenceUrls.length > 0 && (
-          <div className="mt-2 flex flex-col gap-1">
-            {message.referenceUrls.map((url) => (
-              <a
-                key={url}
-                href={url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 underline text-xs break-all"
-              >
-                {url}
-              </a>
-            ))}
-          </div>
-        )}
+          {message.imageUrls && message.imageUrls.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {message.imageUrls.map((url) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={url}
+                  src={url}
+                  alt="Reference"
+                  className="max-h-40 rounded-lg border border-slate-200 object-cover dark:border-white/15"
+                />
+              ))}
+            </div>
+          )}
+
+          {message.referenceUrls && message.referenceUrls.length > 0 && (
+            <div className="mt-2 flex flex-col gap-1">
+              {message.referenceUrls.map((url) => (
+                <a
+                  key={url}
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`break-all text-xs font-semibold underline underline-offset-2 ${
+                    isUser ? "text-white" : "text-sawo dark:text-sawo-light"
+                  }`}
+                >
+                  {url}
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+        {message.time && <span className="mt-1 px-1 text-[10px] text-slate-400 dark:text-slate-500">{message.time}</span>}
       </div>
     </div>
   );
