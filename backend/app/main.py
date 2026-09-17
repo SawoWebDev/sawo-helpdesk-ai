@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 from app.routers import (
     admin,
+    analytics,
     auth,
     categories,
     chat,
@@ -53,6 +54,7 @@ app.include_router(admin.router)
 app.include_router(vault.router)
 app.include_router(library.router)
 app.include_router(usage.router)
+app.include_router(analytics.router)
 
 
 @app.on_event("startup")

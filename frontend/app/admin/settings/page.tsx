@@ -2,6 +2,7 @@
 
 import { Fragment, FormEvent, useEffect, useState } from "react";
 import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
+import OpenRouterModelSelect from "@/components/admin/OpenRouterModelSelect";
 
 interface Settings {
   openrouter_api_key: string;
@@ -116,7 +117,7 @@ export default function SettingsPage() {
     }
   }
 
-  if (!settings) return <p className="text-slate-400">Loading...</p>;
+  if (!settings) return <p className="text-slate-400 dark:text-slate-500">Loading...</p>;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -148,14 +149,16 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-xl font-semibold text-slate-800">Settings</h1>
+      <h1 className="mb-6 text-xl font-semibold text-slate-800 dark:text-slate-100">Settings</h1>
 
-      <div className="mb-6 flex gap-2 border-b border-slate-200">
+      <div className="mb-6 flex gap-2 border-b border-slate-200 dark:border-white/10">
         <button
           type="button"
           onClick={() => setActiveTab("general")}
           className={`px-3 py-2 text-sm font-medium ${
-            activeTab === "general" ? "border-b-2 border-blue-600 text-blue-700" : "text-slate-500"
+            activeTab === "general"
+              ? "border-b-2 border-sawo text-sawo-darker dark:border-sawo-light dark:text-sawo-light"
+              : "text-slate-500 dark:text-slate-400"
           }`}
         >
           General
@@ -164,7 +167,9 @@ export default function SettingsPage() {
           type="button"
           onClick={() => setActiveTab("data")}
           className={`px-3 py-2 text-sm font-medium ${
-            activeTab === "data" ? "border-b-2 border-blue-600 text-blue-700" : "text-slate-500"
+            activeTab === "data"
+              ? "border-b-2 border-sawo text-sawo-darker dark:border-sawo-light dark:text-sawo-light"
+              : "text-slate-500 dark:text-slate-400"
           }`}
         >
           Data Management
@@ -173,28 +178,34 @@ export default function SettingsPage() {
 
       {activeTab === "data" && (
         <div>
-          {resetError && <p className="mb-4 rounded bg-red-50 px-3 py-2 text-sm text-red-800">{resetError}</p>}
-          {resetMessage && (
-            <p className="mb-4 rounded bg-green-50 px-3 py-2 text-sm text-green-800">{resetMessage}</p>
+          {resetError && (
+            <p className="mb-4 rounded bg-red-50 px-3 py-2 text-sm text-red-800 dark:bg-red-500/15 dark:text-red-300">
+              {resetError}
+            </p>
           )}
-          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+          {resetMessage && (
+            <p className="mb-4 rounded bg-green-50 px-3 py-2 text-sm text-green-800 dark:bg-green-500/15 dark:text-green-300">
+              {resetMessage}
+            </p>
+          )}
+          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-white/10 dark:bg-night-surface">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left text-slate-500">
+              <thead className="bg-slate-50 text-left text-slate-500 dark:bg-white/5 dark:text-slate-400">
                 <tr>
                   <th className="px-4 py-2">Data</th>
                   <th className="px-4 py-2 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 dark:divide-white/10">
                 {RESET_TARGETS.map((target) => (
                   <tr key={target.key}>
-                    <td className="px-4 py-3 font-medium text-slate-800">{target.label}</td>
+                    <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">{target.label}</td>
                     <td className="px-4 py-3 text-right">
                       <button
                         type="button"
                         onClick={() => handleReset(target)}
                         disabled={resettingKey === target.key}
-                        className="text-sm font-medium text-red-600 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                        className="text-sm font-medium text-red-600 hover:underline disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-400"
                       >
                         {resettingKey === target.key ? "Resetting..." : "Reset"}
                       </button>
@@ -211,34 +222,33 @@ export default function SettingsPage() {
         <>
           <form onSubmit={handleSubmit} className="flex max-w-xl flex-col gap-4">
             <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium text-slate-700">OpenRouter API Key</label>
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">OpenRouter API Key</label>
               <input
                 type="password"
                 value={apiKeyInput}
                 onChange={(e) => setApiKeyInput(e.target.value)}
                 placeholder={settings.openrouter_api_key || "Not set"}
-                className="rounded border border-slate-300 px-3 py-2 text-sm"
+                className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium text-slate-700">OpenRouter Model</label>
-              <input
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">OpenRouter Model</label>
+              <OpenRouterModelSelect
                 value={settings.openrouter_model}
-                onChange={(e) => setSettings({ ...settings, openrouter_model: e.target.value })}
-                className="rounded border border-slate-300 px-3 py-2 text-sm"
+                onChange={(model) => setSettings({ ...settings, openrouter_model: model })}
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium text-slate-700">Max Sitemap URLs</label>
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Max Sitemap URLs</label>
               <input
                 type="number"
                 min={MAX_SITEMAP_URLS_MIN}
                 max={MAX_SITEMAP_URLS_MAX}
                 value={settings.max_sitemap_urls}
                 onChange={(e) => setSettings({ ...settings, max_sitemap_urls: Number(e.target.value) })}
-                className="rounded border border-slate-300 px-3 py-2 text-sm"
+                className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
               />
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-400 dark:text-slate-500">
                 Caps how many pages can be crawled in a single batch from Library &gt; Web Crawler &gt;
                 &quot;Discover All Pages (sitemap)&quot;. Doesn&apos;t limit how many pages are discovered — only
                 how many of them can be queued to crawl at once. Default 10,000; allowed range{" "}
@@ -246,14 +256,14 @@ export default function SettingsPage() {
               </p>
             </div>
 
-            {error && <p className="text-sm text-red-600">{error}</p>}
-            {message && <p className="text-sm text-green-600">{message}</p>}
+            {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+            {message && <p className="text-sm text-green-600 dark:text-green-400">{message}</p>}
 
             <div className="flex gap-2">
               <button
                 type="submit"
                 disabled={saving}
-                className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                className="rounded bg-sawo px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sawo-dark disabled:opacity-50 dark:bg-sawo-dark dark:hover:bg-sawo-darker"
               >
                 {saving ? "Saving..." : "Save Settings"}
               </button>
@@ -261,25 +271,25 @@ export default function SettingsPage() {
           </form>
 
           <div className="mt-8">
-            <h2 className="mb-3 text-sm font-semibold text-slate-700">AI Usage Monitor</h2>
-            <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+            <h2 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-300">AI Usage Monitor</h2>
+            <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white dark:border-white/10 dark:bg-night-surface">
               <table className="w-full min-w-[720px] text-sm">
-                <thead className="bg-slate-50 text-left text-slate-500">
+                <thead className="bg-slate-50 text-left text-slate-500 dark:bg-white/5 dark:text-slate-400">
                   <tr>
                     <th className="px-4 py-2" rowSpan={2}>
                       Model
                     </th>
-                    <th className="border-l border-slate-200 px-4 py-1 text-center" colSpan={2}>
+                    <th className="border-l border-slate-200 px-4 py-1 text-center dark:border-white/10" colSpan={2}>
                       Today
                     </th>
-                    <th className="border-l border-slate-200 px-4 py-1 text-center" colSpan={3}>
+                    <th className="border-l border-slate-200 px-4 py-1 text-center dark:border-white/10" colSpan={3}>
                       All time
                     </th>
                   </tr>
                   <tr className="text-xs">
-                    <th className="border-l border-slate-200 px-4 py-1 font-normal">Requests</th>
+                    <th className="border-l border-slate-200 px-4 py-1 font-normal dark:border-white/10">Requests</th>
                     <th className="px-4 py-1 font-normal">Tokens</th>
-                    <th className="border-l border-slate-200 px-4 py-1 font-normal">Requests</th>
+                    <th className="border-l border-slate-200 px-4 py-1 font-normal dark:border-white/10">Requests</th>
                     <th className="px-4 py-1 font-normal">Tokens</th>
                     <th className="px-4 py-1 font-normal">Cost</th>
                   </tr>
@@ -289,46 +299,48 @@ export default function SettingsPage() {
                     <Fragment key={m.model}>
                       <tr
                         onClick={() => toggleModel(m.model)}
-                        className="cursor-pointer border-t border-slate-100 hover:bg-slate-50"
+                        className="cursor-pointer border-t border-slate-100 hover:bg-slate-50 dark:border-white/10 dark:hover:bg-white/5"
                       >
                         <td className="px-4 py-2">
                           <div className="flex min-w-0 items-center gap-2">
-                            <span className="shrink-0 text-slate-400">{expandedModel === m.model ? "▾" : "▸"}</span>
-                            <span className="truncate font-medium text-slate-800" title={m.model}>
+                            <span className="shrink-0 text-slate-400 dark:text-slate-500">{expandedModel === m.model ? "▾" : "▸"}</span>
+                            <span className="truncate font-medium text-slate-800 dark:text-slate-100" title={m.model}>
                               {m.model}
                             </span>
                             <span
                               className={`shrink-0 rounded px-2 py-0.5 text-xs font-medium ${
-                                m.is_free ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-600"
+                                m.is_free
+                                  ? "bg-green-50 text-green-700 dark:bg-green-500/15 dark:text-green-300"
+                                  : "bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300"
                               }`}
                             >
                               {m.is_free ? "Free" : "Paid"}
                             </span>
                           </div>
                         </td>
-                        <td className="border-l border-slate-100 px-4 py-2">{m.requests_today}</td>
+                        <td className="border-l border-slate-100 px-4 py-2 dark:border-white/10">{m.requests_today}</td>
                         <td className="px-4 py-2">{m.tokens_today.toLocaleString()}</td>
-                        <td className="border-l border-slate-100 px-4 py-2">{m.requests_total}</td>
+                        <td className="border-l border-slate-100 px-4 py-2 dark:border-white/10">{m.requests_total}</td>
                         <td className="px-4 py-2">{m.tokens_total.toLocaleString()}</td>
                         <td className="px-4 py-2">{formatCost(m.cost_total_usd)}</td>
                       </tr>
                       {expandedModel === m.model && (
-                        <tr key={`${m.model}-detail`} className="border-t border-slate-100 bg-slate-50">
+                        <tr key={`${m.model}-detail`} className="border-t border-slate-100 bg-slate-50 dark:border-white/10 dark:bg-white/5">
                           <td colSpan={6} className="px-4 py-3">
                             {m.is_free && (
-                              <p className="mb-3 text-xs text-slate-400">
+                              <p className="mb-3 text-xs text-slate-400 dark:text-slate-500">
                                 Free OpenRouter models are rate-limited (typically 20 requests/min,
                                 200-1000/day) rather than billed — cost is always $0 for this model; token
                                 counts below are for tracking that quota.
                               </p>
                             )}
-                            {dailyLoading && <p className="text-xs text-slate-400">Loading daily breakdown...</p>}
+                            {dailyLoading && <p className="text-xs text-slate-400 dark:text-slate-500">Loading daily breakdown...</p>}
                             {!dailyLoading && dailyUsage && dailyUsage.length === 0 && (
-                              <p className="text-xs text-slate-400">No usage recorded yet.</p>
+                              <p className="text-xs text-slate-400 dark:text-slate-500">No usage recorded yet.</p>
                             )}
                             {!dailyLoading && dailyUsage && dailyUsage.length > 0 && (
                               <table className="w-full max-w-md text-xs">
-                                <thead className="text-left text-slate-500">
+                                <thead className="text-left text-slate-500 dark:text-slate-400">
                                   <tr>
                                     <th className="py-1 pr-4 font-normal">Day</th>
                                     <th className="py-1 pr-4 font-normal">Requests</th>
@@ -338,7 +350,7 @@ export default function SettingsPage() {
                                 </thead>
                                 <tbody>
                                   {dailyUsage.map((d) => (
-                                    <tr key={d.day} className="border-t border-slate-200">
+                                    <tr key={d.day} className="border-t border-slate-200 dark:border-white/10">
                                       <td className="py-1 pr-4">{d.day}</td>
                                       <td className="py-1 pr-4">{d.requests}</td>
                                       <td className="py-1 pr-4">{d.tokens.toLocaleString()}</td>
@@ -355,7 +367,7 @@ export default function SettingsPage() {
                   ))}
                   {modelUsage && modelUsage.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-4 py-6 text-center text-slate-400">
+                      <td colSpan={6} className="px-4 py-6 text-center text-slate-400 dark:text-slate-500">
                         No AI usage recorded yet.
                       </td>
                     </tr>

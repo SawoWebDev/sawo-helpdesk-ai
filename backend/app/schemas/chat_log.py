@@ -40,3 +40,30 @@ class SessionSummary(BaseModel):
     first_question: str
     first_at: datetime
     last_at: datetime
+    session_cost_usd: float
+    # Only populated when a search term is active: how many messages in this
+    # session matched, and the matching row's text (question or answer,
+    # whichever matched) to build a highlighted excerpt from client-side.
+    match_count: int | None = None
+    preview_text: str | None = None
+
+
+class DeleteSessionsRequest(BaseModel):
+    session_ids: list[str]
+
+
+class SessionUsageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    model: str
+    is_free: bool
+    request_type: str
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    cost_usd: float
+    provider: str | None
+    finish_reason: str | None
+    latency_ms: int | None
+    created_at: datetime

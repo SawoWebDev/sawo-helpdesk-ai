@@ -8,26 +8,26 @@ body {
   font-family: var(--font-montserrat), sans-serif;
 }
 
-/* ---------- Dark mode (scoped to the chat UI via .chat-root; admin pages are unaffected) ---------- */
-.dark .chat-root {
+/* ---------- Dark mode: applies to the whole app (chat + admin CMS) ---------- */
+.dark {
   color-scheme: dark;
 }
-/* Dark mode scrollbars */
-.dark .chat-root ::-webkit-scrollbar {
+/* Dark mode scrollbars, everywhere */
+.dark ::-webkit-scrollbar {
   width: 8px;
 }
-.dark .chat-root ::-webkit-scrollbar-track {
+.dark ::-webkit-scrollbar-track {
   background: transparent;
 }
-.dark .chat-root ::-webkit-scrollbar-thumb {
+.dark ::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.14);
   border-radius: 999px;
 }
-.dark .chat-root ::-webkit-scrollbar-thumb:hover {
+.dark ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.24);
 }
 
-/* ---------- Shiny glass surfaces (dark mode only) ----------
+/* ---------- Shiny glass surfaces (chat UI only, dark mode only) ----------
    These reset background-color as well as background-image, because a light-mode
    `bg-white` would otherwise keep showing through a gradient-only override. */
 .dark .glass {

@@ -118,37 +118,37 @@ export default function FAQListPage() {
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-slate-800">FAQ Knowledge Base</h1>
+        <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">FAQ Knowledge Base</h1>
         <div className="flex gap-2">
           <button
             type="button"
             onClick={handleDownloadTemplate}
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
+            className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15"
           >
             Download Template
           </button>
           <button
             type="button"
             onClick={handleExport}
-            className="rounded border border-slate-300 px-3 py-2 text-sm"
+            className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15"
           >
             Export Excel
           </button>
-          <label className="cursor-pointer rounded border border-slate-300 px-3 py-2 text-sm">
+          <label className="cursor-pointer rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15">
             Import Excel
             <input type="file" accept=".xlsx" onChange={handleImport} className="hidden" />
           </label>
-          <Link href="/admin/faqs/new" className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white">
+          <Link href="/admin/faqs/new" className="rounded bg-sawo px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sawo-dark dark:bg-sawo-dark dark:hover:bg-sawo-darker">
             New FAQ
           </Link>
         </div>
       </div>
 
       {importSummary && (
-        <p className="mb-4 rounded bg-blue-50 px-3 py-2 text-sm text-blue-800">{importSummary}</p>
+        <p className="mb-4 rounded bg-sawo/10 px-3 py-2 text-sm text-sawo-darker dark:bg-sawo/15 dark:text-sawo-light">{importSummary}</p>
       )}
       {downloadError && (
-        <p className="mb-4 rounded bg-red-50 px-3 py-2 text-sm text-red-800">{downloadError}</p>
+        <p className="mb-4 rounded bg-red-50 px-3 py-2 text-sm text-red-800 dark:bg-red-500/15 dark:text-red-300">{downloadError}</p>
       )}
 
       <div className="mb-4 flex gap-2">
@@ -159,7 +159,7 @@ export default function FAQListPage() {
             setSearch(e.target.value);
           }}
           placeholder="Search questions/answers..."
-          className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm"
+          className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
         />
         <CategorySelect
           categories={categories}
@@ -175,7 +175,7 @@ export default function FAQListPage() {
             setPage(1);
             setStatusFilter(e.target.value as "" | "published" | "draft");
           }}
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
         >
           <option value="">All statuses</option>
           <option value="published">Published</option>
@@ -183,9 +183,9 @@ export default function FAQListPage() {
         </select>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-white/10 dark:bg-night-surface">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-slate-500">
+          <thead className="bg-slate-50 text-left text-slate-500 dark:bg-white/5 dark:text-slate-400">
             <tr>
               <th className="px-4 py-2">Question</th>
               <th className="px-4 py-2">Category</th>
@@ -196,29 +196,31 @@ export default function FAQListPage() {
           </thead>
           <tbody>
             {faqs.map((faq) => (
-              <tr key={faq.id} className="border-t border-slate-100">
+              <tr key={faq.id} className="border-t border-slate-100 dark:border-white/10">
                 <td className="max-w-md truncate px-4 py-2">{faq.question}</td>
-                <td className="px-4 py-2 text-slate-500">{categoryName(faq.category_id)}</td>
-                <td className="px-4 py-2 text-slate-500" title={faq.source_label ?? undefined}>
+                <td className="px-4 py-2 text-slate-500 dark:text-slate-400">{categoryName(faq.category_id)}</td>
+                <td className="px-4 py-2 text-slate-500 dark:text-slate-400" title={faq.source_label ?? undefined}>
                   {faq.source}
                 </td>
                 <td className="px-4 py-2">
                   <span
                     className={`rounded px-2 py-0.5 text-xs font-medium ${
-                      faq.status === "published" ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"
+                      faq.status === "published"
+                        ? "bg-green-50 text-green-700 dark:bg-green-500/15 dark:text-green-300"
+                        : "bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
                     }`}
                   >
                     {faq.status}
                   </span>
                 </td>
                 <td className="px-4 py-2 text-right">
-                  <button onClick={() => handleToggleStatus(faq)} className="mr-3 text-blue-600">
+                  <button onClick={() => handleToggleStatus(faq)} className="mr-3 text-sawo-dark dark:text-sawo-light">
                     {faq.status === "published" ? "Unpublish" : "Publish"}
                   </button>
-                  <Link href={`/admin/faqs/${faq.id}`} className="mr-3 text-blue-600">
+                  <Link href={`/admin/faqs/${faq.id}`} className="mr-3 text-sawo-dark dark:text-sawo-light">
                     Edit
                   </Link>
-                  <button onClick={() => handleDelete(faq.id)} className="text-red-600">
+                  <button onClick={() => handleDelete(faq.id)} className="text-red-600 dark:text-red-400">
                     Delete
                   </button>
                 </td>
@@ -226,7 +228,7 @@ export default function FAQListPage() {
             ))}
             {faqs.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={5} className="px-4 py-6 text-center text-slate-400 dark:text-slate-500">
                   No FAQ entries found.
                 </td>
               </tr>

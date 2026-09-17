@@ -66,15 +66,19 @@ interface AnswerSource {
 }
 
 const STATUS_STYLES: Record<string, string> = {
-  pending: "bg-slate-100 text-slate-600",
-  processing: "bg-blue-50 text-blue-700",
-  indexed: "bg-green-50 text-green-700",
-  failed: "bg-red-50 text-red-700",
+  pending: "bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300",
+  processing: "bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
+  indexed: "bg-green-50 text-green-700 dark:bg-green-500/15 dark:text-green-300",
+  failed: "bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300",
 };
 
 function StatusBadge({ status }: { status: string }) {
   return (
-    <span className={`rounded px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[status] ?? "bg-slate-100 text-slate-600"}`}>
+    <span
+      className={`rounded px-2 py-0.5 text-xs font-medium ${
+        STATUS_STYLES[status] ?? "bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300"
+      }`}
+    >
       {status}
     </span>
   );
@@ -96,17 +100,17 @@ function SourceRow({
   indent: boolean;
 }) {
   return (
-    <tr className="border-t border-slate-100">
+    <tr className="border-t border-slate-100 dark:border-white/10">
       <td className={`max-w-xs truncate px-4 py-2 ${indent ? "pl-10" : ""}`} title={s.original_filename ?? s.origin_url ?? ""}>
         {s.source_type === "file" ? s.original_filename : s.origin_url}
       </td>
-      <td className="px-4 py-2 text-slate-500">{categoryName(s.category_id)}</td>
-      <td className="px-4 py-2 text-slate-500">{s.chunk_count}</td>
-      <td className="px-4 py-2 text-slate-500">{new Date(s.created_at).toLocaleDateString()}</td>
+      <td className="px-4 py-2 text-slate-500 dark:text-slate-400">{categoryName(s.category_id)}</td>
+      <td className="px-4 py-2 text-slate-500 dark:text-slate-400">{s.chunk_count}</td>
+      <td className="px-4 py-2 text-slate-500 dark:text-slate-400">{new Date(s.created_at).toLocaleDateString()}</td>
       <td className="px-4 py-2">
         <StatusBadge status={s.status} />
         {s.status === "failed" && s.error_message && (
-          <p className="mt-1 max-w-xs truncate text-xs text-red-500" title={s.error_message}>
+          <p className="mt-1 max-w-xs truncate text-xs text-red-500 dark:text-red-400" title={s.error_message}>
             {s.error_message}
           </p>
         )}
@@ -116,12 +120,12 @@ function SourceRow({
           <button
             onClick={() => onRetry(s)}
             disabled={retrying}
-            className="mr-3 text-blue-600 disabled:cursor-not-allowed disabled:text-slate-300"
+            className="mr-3 text-sawo-dark disabled:cursor-not-allowed disabled:text-slate-300 dark:text-sawo-light dark:disabled:text-slate-600"
           >
             {retrying ? "Retrying..." : "Retry"}
           </button>
         )}
-        <button onClick={() => onDelete(s)} className="text-red-600">
+        <button onClick={() => onDelete(s)} className="text-red-600 dark:text-red-400">
           Delete
         </button>
       </td>
@@ -500,19 +504,29 @@ export default function LibraryPage() {
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-slate-800">Library</h1>
+        <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Library</h1>
       </div>
 
-      {error && <p className="mb-4 rounded bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
-      {message && <p className="mb-4 rounded bg-blue-50 px-3 py-2 text-sm text-blue-800">{message}</p>}
+      {error && (
+        <p className="mb-4 rounded bg-red-50 px-3 py-2 text-sm text-red-800 dark:bg-red-500/15 dark:text-red-300">
+          {error}
+        </p>
+      )}
+      {message && (
+        <p className="mb-4 rounded bg-sawo/10 px-3 py-2 text-sm text-sawo-darker dark:bg-sawo/15 dark:text-sawo-light">
+          {message}
+        </p>
+      )}
 
-      <div className="mb-6 rounded-lg border border-slate-200 bg-white p-4">
-        <div className="mb-4 flex gap-2 border-b border-slate-200">
+      <div className="mb-6 rounded-lg border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-night-surface">
+        <div className="mb-4 flex gap-2 border-b border-slate-200 dark:border-white/10">
           <button
             type="button"
             onClick={() => setActiveTab("file")}
             className={`px-3 py-2 text-sm font-medium ${
-              activeTab === "file" ? "border-b-2 border-blue-600 text-blue-700" : "text-slate-500"
+              activeTab === "file"
+                ? "border-b-2 border-sawo text-sawo-darker dark:border-sawo-light dark:text-sawo-light"
+                : "text-slate-500 dark:text-slate-400"
             }`}
           >
             File Upload
@@ -521,7 +535,9 @@ export default function LibraryPage() {
             type="button"
             onClick={() => setActiveTab("url")}
             className={`px-3 py-2 text-sm font-medium ${
-              activeTab === "url" ? "border-b-2 border-blue-600 text-blue-700" : "text-slate-500"
+              activeTab === "url"
+                ? "border-b-2 border-sawo text-sawo-darker dark:border-sawo-light dark:text-sawo-light"
+                : "text-slate-500 dark:text-slate-400"
             }`}
           >
             Web Crawler
@@ -530,7 +546,7 @@ export default function LibraryPage() {
 
         <div className="mb-4 flex flex-wrap items-end gap-3">
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-slate-500">Category</label>
+            <label className="text-xs text-slate-500 dark:text-slate-400">Category</label>
             <CategorySelect
               categories={categories}
               value={categoryId}
@@ -539,12 +555,12 @@ export default function LibraryPage() {
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-slate-500">Or create new category</label>
+            <label className="text-xs text-slate-500 dark:text-slate-400">Or create new category</label>
             <input
               value={newCategoryName}
               onChange={(e) => setNewCategoryName(e.target.value)}
               placeholder="e.g. IT technical"
-              className="rounded border border-slate-300 px-3 py-2 text-sm"
+              className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
             />
           </div>
         </div>
@@ -552,7 +568,7 @@ export default function LibraryPage() {
         {activeTab === "file" ? (
           <form onSubmit={handleUpload} className="flex flex-wrap items-end gap-3">
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-slate-500">Document (.pdf, .docx, .xlsx)</label>
+              <label className="text-xs text-slate-500 dark:text-slate-400">Document (.pdf, .docx, .xlsx)</label>
               <input
                 type="file"
                 accept=".pdf,.docx,.xlsx"
@@ -563,7 +579,7 @@ export default function LibraryPage() {
             <button
               type="submit"
               disabled={submitting || !file}
-              className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              className="rounded bg-sawo px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sawo-dark disabled:opacity-50 dark:bg-sawo-dark dark:hover:bg-sawo-darker"
             >
               {submitting ? "Uploading..." : "Upload & Index"}
             </button>
@@ -572,18 +588,18 @@ export default function LibraryPage() {
           <div>
             <form onSubmit={handleCrawl} className="flex flex-wrap items-end gap-3">
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-slate-500">URL</label>
+                <label className="text-xs text-slate-500 dark:text-slate-400">URL</label>
                 <input
                   value={crawlUrl}
                   onChange={(e) => setCrawlUrl(e.target.value)}
                   placeholder="https://example.com/docs"
-                  className="w-72 rounded border border-slate-300 px-3 py-2 text-sm"
+                  className="w-72 rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
                 />
               </div>
               <button
                 type="submit"
                 disabled={submitting || !crawlUrl.trim()}
-                className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                className="rounded bg-sawo px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sawo-dark disabled:opacity-50 dark:bg-sawo-dark dark:hover:bg-sawo-darker"
               >
                 {submitting ? "Queuing..." : "Crawl This Page"}
               </button>
@@ -591,20 +607,20 @@ export default function LibraryPage() {
                 type="button"
                 onClick={handleDiscoverSitemap}
                 disabled={discovering || !crawlUrl.trim()}
-                className="rounded border border-slate-300 px-4 py-2 text-sm font-medium disabled:opacity-50"
+                className="rounded border border-slate-300 px-4 py-2 text-sm font-medium disabled:opacity-50 dark:border-white/15"
               >
                 {discovering ? "Discovering..." : "Discover All Pages (sitemap)"}
               </button>
             </form>
-            <p className="mt-2 text-xs text-slate-400">
+            <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
               &quot;Crawl This Page&quot; indexes only the URL above. &quot;Discover All Pages&quot; reads the
               site&apos;s sitemap.xml to find every page it publishes, so you can index the whole site at once.
             </p>
 
             {discoveredUrls && discoveredUrls.length > 0 && (
-              <div className="mt-4 rounded-lg border border-slate-200 p-3">
+              <div className="mt-4 rounded-lg border border-slate-200 p-3 dark:border-white/10">
                 <div className="mb-2 flex items-center justify-between">
-                  <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
                     <input
                       type="checkbox"
                       checked={selectedUrls.size === discoveredUrls.length}
@@ -620,30 +636,30 @@ export default function LibraryPage() {
                       selectedUrls.size === 0 ||
                       (maxCrawlUrls !== null && selectedUrls.size > maxCrawlUrls)
                     }
-                    className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                    className="rounded bg-sawo px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sawo-dark disabled:opacity-50 dark:bg-sawo-dark dark:hover:bg-sawo-darker"
                   >
                     {submitting ? "Queuing..." : `Crawl ${selectedUrls.size} Selected`}
                   </button>
                 </div>
                 {maxCrawlUrls !== null && selectedUrls.size > maxCrawlUrls && (
-                  <p className="mb-2 text-xs text-amber-600">
+                  <p className="mb-2 text-xs text-amber-600 dark:text-amber-400">
                     You can crawl at most {maxCrawlUrls.toLocaleString()} pages per batch (Settings &gt; General
                     &gt; Max Sitemap URLs) — deselect {(selectedUrls.size - maxCrawlUrls).toLocaleString()} more to
                     continue.
                   </p>
                 )}
                 {discoveredUrls.length > LARGE_DISCOVERY_THRESHOLD ? (
-                  <p className="rounded border border-slate-100 px-3 py-2 text-xs text-slate-400">
+                  <p className="rounded border border-slate-100 px-3 py-2 text-xs text-slate-400 dark:border-white/10 dark:text-slate-500">
                     The individual page list isn&apos;t shown for sites this large (
                     {discoveredUrls.length.toLocaleString()} pages) — rendering every row would freeze the
                     browser tab. Use the checkbox above to select all or none.
                   </p>
                 ) : (
-                  <div className="max-h-64 overflow-y-auto rounded border border-slate-100">
+                  <div className="max-h-64 overflow-y-auto rounded border border-slate-100 dark:border-white/10">
                     {discoveredUrls.map((url) => (
                       <label
                         key={url}
-                        className="flex items-center gap-2 border-t border-slate-50 px-3 py-1.5 text-sm text-slate-600 first:border-t-0 hover:bg-slate-50"
+                        className="flex items-center gap-2 border-t border-slate-50 px-3 py-1.5 text-sm text-slate-600 first:border-t-0 hover:bg-slate-50 dark:border-white/5 dark:text-slate-300 dark:hover:bg-white/5"
                       >
                         <input
                           type="checkbox"
@@ -661,18 +677,18 @@ export default function LibraryPage() {
         )}
       </div>
 
-      <div className="mb-6 rounded-lg border border-slate-200 bg-white p-4">
+      <div className="mb-6 rounded-lg border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-night-surface">
         <form onSubmit={handleSearch} className="flex gap-2">
           <input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Hybrid search across indexed Library content..."
-            className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm"
+            className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
           />
           <button
             type="submit"
             disabled={searching}
-            className="rounded border border-slate-300 px-4 py-2 text-sm font-medium disabled:opacity-50"
+            className="rounded border border-slate-300 px-4 py-2 text-sm font-medium disabled:opacity-50 dark:border-white/15"
           >
             {searching ? "Searching..." : "Search"}
           </button>
@@ -686,7 +702,7 @@ export default function LibraryPage() {
                 setSearchResultsPage(1);
                 setSearchQuery("");
               }}
-              className="rounded border border-slate-300 px-3 py-2 text-sm text-slate-500"
+              className="rounded border border-slate-300 px-3 py-2 text-sm text-slate-500 dark:border-white/15 dark:text-slate-400"
             >
               Clear
             </button>
@@ -696,12 +712,12 @@ export default function LibraryPage() {
         {searchResults && (
           <div className="mt-4 flex flex-col gap-4">
             {searchAnswer && (
-              <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
-                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-blue-700">Answer</p>
-                <p className="text-sm text-slate-800">{searchAnswer}</p>
+              <div className="rounded-lg border border-sawo/25 bg-sawo/10 p-4 dark:border-sawo-light/25 dark:bg-sawo/10">
+                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-sawo-darker dark:text-sawo-light">Answer</p>
+                <p className="text-sm text-slate-800 dark:text-slate-100">{searchAnswer}</p>
                 {searchAnswerSources.length > 0 && (
-                  <div className="mt-3 border-t border-blue-100 pt-2">
-                    <p className="mb-1 text-xs font-medium uppercase tracking-wide text-blue-700">
+                  <div className="mt-3 border-t border-sawo/25 pt-2 dark:border-sawo-light/25">
+                    <p className="mb-1 text-xs font-medium uppercase tracking-wide text-sawo-darker dark:text-sawo-light">
                       Sourced from
                     </p>
                     <ul className="flex flex-col gap-0.5">
@@ -712,13 +728,13 @@ export default function LibraryPage() {
                               href={s.source_url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-xs text-blue-600 hover:underline"
+                              className="text-xs text-sawo-dark hover:underline dark:text-sawo-light"
                             >
                               {s.title}
                             </a>
                           </li>
                         ) : (
-                          <li key={i} className="text-xs text-slate-500">
+                          <li key={i} className="text-xs text-slate-500 dark:text-slate-400">
                             {s.title}
                           </li>
                         )
@@ -729,7 +745,7 @@ export default function LibraryPage() {
               </div>
             )}
             {!searchAnswer && (
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-slate-400 dark:text-slate-500">
                 {searchResults.length === 0
                   ? "No matches found."
                   : "No confident answer could be generated from the indexed content — showing raw matches below."}
@@ -737,31 +753,31 @@ export default function LibraryPage() {
             )}
             {searchResults.length > 0 && (
               <div className="flex flex-col gap-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
                   Matched sources ({searchResults.length})
                 </p>
                 {searchResults
                   .slice((searchResultsPage - 1) * searchResultsPageSize, searchResultsPage * searchResultsPageSize)
                   .map((r) => (
-                    <div key={r.entry_id} className="rounded border border-slate-100 p-3">
+                    <div key={r.entry_id} className="rounded border border-slate-100 p-3 dark:border-white/10">
                       <div className="flex items-center justify-between">
                         {r.source_url ? (
                           <a
                             href={r.source_url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-sm font-medium text-blue-600 hover:underline"
+                            className="text-sm font-medium text-sawo-dark hover:underline dark:text-sawo-light"
                           >
                             {r.title}
                           </a>
                         ) : (
-                          <span className="text-sm font-medium text-slate-800">{r.title}</span>
+                          <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{r.title}</span>
                         )}
-                        <span className="text-xs text-slate-400">
+                        <span className="text-xs text-slate-400 dark:text-slate-500">
                           {r.match_type} · {(r.score * 100).toFixed(0)}%
                         </span>
                       </div>
-                      <p className="mt-1 text-sm text-slate-600">
+                      <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
                         <HighlightedExcerpt text={r.excerpt} />
                       </p>
                     </div>
@@ -780,9 +796,9 @@ export default function LibraryPage() {
         )}
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-white/10 dark:bg-night-surface">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-slate-500">
+          <thead className="bg-slate-50 text-left text-slate-500 dark:bg-white/5 dark:text-slate-400">
             <tr>
               <th className="px-4 py-2">Source</th>
               <th className="px-4 py-2">Category</th>
@@ -813,7 +829,7 @@ export default function LibraryPage() {
                 const isExpanded = expandedJobId === b.job_id;
                 return (
                   <Fragment key={`batch-${b.job_id}`}>
-                    <tr onClick={() => toggleJob(b.job_id)} className="cursor-pointer border-t border-slate-100 hover:bg-slate-50">
+                    <tr onClick={() => toggleJob(b.job_id)} className="cursor-pointer border-t border-slate-100 hover:bg-slate-50 dark:border-white/10 dark:hover:bg-white/5">
                       <td className="max-w-xs truncate px-4 py-2" title={b.origin_label}>
                         {renamingJobId === b.job_id ? (
                           <input
@@ -825,19 +841,19 @@ export default function LibraryPage() {
                               if (e.key === "Enter") handleRenameBatch(b);
                               if (e.key === "Escape") setRenamingJobId(null);
                             }}
-                            className="rounded border border-slate-300 px-2 py-1 text-sm"
+                            className="rounded border border-slate-300 px-2 py-1 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
                           />
                         ) : (
                           <>
-                            <span className="mr-2 text-slate-400">{isExpanded ? "▾" : "▸"}</span>
-                            <span className="font-medium text-slate-800">{b.origin_label}</span>
-                            <span className="ml-2 text-xs text-slate-400">({b.source_count} pages)</span>
+                            <span className="mr-2 text-slate-400 dark:text-slate-500">{isExpanded ? "▾" : "▸"}</span>
+                            <span className="font-medium text-slate-800 dark:text-slate-100">{b.origin_label}</span>
+                            <span className="ml-2 text-xs text-slate-400 dark:text-slate-500">({b.source_count} pages)</span>
                           </>
                         )}
                       </td>
-                      <td className="px-4 py-2 text-slate-500">{categoryName(b.category_id)}</td>
-                      <td className="px-4 py-2 text-slate-500">—</td>
-                      <td className="px-4 py-2 text-slate-500">{new Date(b.created_at).toLocaleDateString()}</td>
+                      <td className="px-4 py-2 text-slate-500 dark:text-slate-400">{categoryName(b.category_id)}</td>
+                      <td className="px-4 py-2 text-slate-500 dark:text-slate-400">—</td>
+                      <td className="px-4 py-2 text-slate-500 dark:text-slate-400">{new Date(b.created_at).toLocaleDateString()}</td>
                       <td className="px-4 py-2">
                         <button
                           onClick={(e) => {
@@ -846,8 +862,8 @@ export default function LibraryPage() {
                           }}
                           className={`rounded px-2 py-0.5 text-xs font-medium ${
                             isExpanded && jobSourcesFilter === "indexed"
-                              ? "bg-green-600 text-white"
-                              : "bg-green-50 text-green-700 hover:bg-green-100"
+                              ? "bg-green-600 text-white dark:bg-green-500"
+                              : "bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-500/15 dark:text-green-300 dark:hover:bg-green-500/25"
                           }`}
                         >
                           {b.indexed_count} indexed
@@ -858,7 +874,7 @@ export default function LibraryPage() {
                           // but the backend filter matches a single status
                           // column value, so filtering on "pending" alone
                           // would silently hide the "processing" ones.
-                          <span className="ml-1 rounded bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                          <span className="ml-1 rounded bg-sawo/10 px-2 py-0.5 text-xs font-medium text-sawo-darker dark:bg-sawo/15 dark:text-sawo-light">
                             {b.pending_count} pending
                           </span>
                         )}
@@ -870,8 +886,8 @@ export default function LibraryPage() {
                             }}
                             className={`ml-1 rounded px-2 py-0.5 text-xs font-medium ${
                               isExpanded && jobSourcesFilter === "failed"
-                                ? "bg-red-600 text-white"
-                                : "bg-red-50 text-red-700 hover:bg-red-100"
+                                ? "bg-red-600 text-white dark:bg-red-500"
+                                : "bg-red-50 text-red-700 hover:bg-red-100 dark:bg-red-500/15 dark:text-red-300 dark:hover:bg-red-500/25"
                             }`}
                           >
                             {b.failed_count} failed
@@ -886,7 +902,7 @@ export default function LibraryPage() {
                                 e.stopPropagation();
                                 handleRenameBatch(b);
                               }}
-                              className="mr-2 text-blue-600"
+                              className="mr-2 text-sawo-dark dark:text-sawo-light"
                             >
                               Save
                             </button>
@@ -895,7 +911,7 @@ export default function LibraryPage() {
                                 e.stopPropagation();
                                 setRenamingJobId(null);
                               }}
-                              className="mr-3 text-slate-500"
+                              className="mr-3 text-slate-500 dark:text-slate-400"
                             >
                               Cancel
                             </button>
@@ -907,7 +923,7 @@ export default function LibraryPage() {
                               setRenamingJobId(b.job_id);
                               setRenameLabel(b.origin_label);
                             }}
-                            className="mr-3 text-blue-600"
+                            className="mr-3 text-sawo-dark dark:text-sawo-light"
                           >
                             Rename
                           </button>
@@ -919,7 +935,7 @@ export default function LibraryPage() {
                               handleRetryBatch(b);
                             }}
                             disabled={retryingJobId === b.job_id}
-                            className="mr-3 text-blue-600 disabled:cursor-not-allowed disabled:text-slate-300"
+                            className="mr-3 text-sawo-dark disabled:cursor-not-allowed disabled:text-slate-300 dark:text-sawo-light dark:disabled:text-slate-600"
                           >
                             {retryingJobId === b.job_id ? "Retrying..." : "Retry Failed"}
                           </button>
@@ -929,17 +945,17 @@ export default function LibraryPage() {
                             e.stopPropagation();
                             handleDeleteBatch(b);
                           }}
-                          className="text-red-600"
+                          className="text-red-600 dark:text-red-400"
                         >
                           Delete
                         </button>
                       </td>
                     </tr>
                     {isExpanded && (
-                      <tr className="border-t border-slate-100 bg-slate-50">
+                      <tr className="border-t border-slate-100 bg-slate-50 dark:border-white/10 dark:bg-white/5">
                         <td colSpan={6} className="p-0">
                           {jobSourcesFilter && (
-                            <div className="flex items-center justify-between px-8 py-2 text-xs text-slate-500">
+                            <div className="flex items-center justify-between px-8 py-2 text-xs text-slate-500 dark:text-slate-400">
                               <span>
                                 Showing <span className="font-medium">{jobSourcesFilter}</span> pages only
                               </span>
@@ -950,17 +966,17 @@ export default function LibraryPage() {
                                   setJobSources(null);
                                   loadJobSources(b.job_id, null, 1);
                                 }}
-                                className="text-blue-600"
+                                className="text-sawo-dark dark:text-sawo-light"
                               >
                                 Show all
                               </button>
                             </div>
                           )}
                           {jobSourcesLoading && (
-                            <p className="px-8 py-3 text-xs text-slate-400">Loading pages...</p>
+                            <p className="px-8 py-3 text-xs text-slate-400 dark:text-slate-500">Loading pages...</p>
                           )}
                           {!jobSourcesLoading && jobSources && jobSources.length === 0 && (
-                            <p className="px-8 py-3 text-xs text-slate-400">No pages match this filter.</p>
+                            <p className="px-8 py-3 text-xs text-slate-400 dark:text-slate-500">No pages match this filter.</p>
                           )}
                           {!jobSourcesLoading && jobSources && jobSources.length > 0 && (
                             <>
@@ -1001,7 +1017,7 @@ export default function LibraryPage() {
             })}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={6} className="px-4 py-6 text-center text-slate-400 dark:text-slate-500">
                   No Library sources yet. Upload a document or crawl a URL above.
                 </td>
               </tr>

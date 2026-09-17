@@ -85,14 +85,14 @@ export default function UnansweredPage() {
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-slate-800">Unanswered Questions</h1>
+        <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Unanswered Questions</h1>
         <select
           value={statusFilter}
           onChange={(e) => {
             setPage(1);
             setStatusFilter(e.target.value);
           }}
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
         >
           <option value="pending">Pending</option>
           <option value="answered">Answered</option>
@@ -102,11 +102,11 @@ export default function UnansweredPage() {
 
       <div className="flex flex-col gap-3">
         {items.map((item) => (
-          <div key={item.id} className="rounded-lg border border-slate-200 bg-white p-4">
+          <div key={item.id} className="rounded-lg border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-night-surface">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-800">{item.question_text}</p>
-                <p className="mt-1 text-xs text-slate-400">
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{item.question_text}</p>
+                <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
                   {new Date(item.created_at).toLocaleString()} · status: {item.status}
                   {item.confidence_score !== null && ` · confidence: ${item.confidence_score.toFixed(2)}`}
                 </p>
@@ -118,10 +118,10 @@ export default function UnansweredPage() {
                     value={item.category_id}
                     onChange={(id) => assignCategory(item.id, id)}
                   />
-                  <button onClick={() => startResolve(item)} className="text-sm text-blue-600">
+                  <button onClick={() => startResolve(item)} className="text-sm text-sawo-dark dark:text-sawo-light">
                     Answer
                   </button>
-                  <button onClick={() => dismiss(item.id)} className="text-sm text-red-600">
+                  <button onClick={() => dismiss(item.id)} className="text-sm text-red-600 dark:text-red-400">
                     Dismiss
                   </button>
                 </div>
@@ -129,13 +129,13 @@ export default function UnansweredPage() {
             </div>
 
             {expandedId === item.id && (
-              <div className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-4">
+              <div className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-4 dark:border-white/10">
                 <textarea
                   value={answer}
                   onChange={(e) => setAnswer(e.target.value)}
                   placeholder="Write the answer..."
                   rows={4}
-                  className="rounded border border-slate-300 px-3 py-2 text-sm"
+                  className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
                 />
                 <CategorySelect
                   categories={categories}
@@ -147,11 +147,11 @@ export default function UnansweredPage() {
                   <button
                     onClick={() => submitResolve(item.id)}
                     disabled={!answer.trim()}
-                    className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                    className="rounded bg-sawo px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sawo-dark disabled:opacity-50 dark:bg-sawo-dark dark:hover:bg-sawo-darker"
                   >
                     Promote to FAQ
                   </button>
-                  <button onClick={() => setExpandedId(null)} className="rounded border border-slate-300 px-4 py-2 text-sm">
+                  <button onClick={() => setExpandedId(null)} className="rounded border border-slate-300 px-4 py-2 text-sm dark:border-white/15 dark:text-slate-300 dark:hover:bg-white/5">
                     Cancel
                   </button>
                 </div>
@@ -160,10 +160,10 @@ export default function UnansweredPage() {
           </div>
         ))}
 
-        {items.length === 0 && <p className="text-center text-slate-400">No questions found.</p>}
+        {items.length === 0 && <p className="text-center text-slate-400 dark:text-slate-500">No questions found.</p>}
       </div>
 
-      <div className="mt-4 rounded-lg border border-slate-200 bg-white">
+      <div className="mt-4 rounded-lg border border-slate-200 bg-white dark:border-white/10 dark:bg-night-surface">
         <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
       </div>
     </div>

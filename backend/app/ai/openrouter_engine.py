@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 import httpx
 
@@ -72,9 +73,19 @@ class OpenRouterEngine(AIEngine):
                 return resp.json()
 
         try:
+            started_at = time.perf_counter()
             data = await _with_retry(_call)
+            latency_ms = round((time.perf_counter() - started_at) * 1000)
             ordered = sorted(data["data"], key=lambda item: item["index"])
-            asyncio.create_task(record_usage(self.embedding_model, "embedding", data.get("usage")))
+            asyncio.create_task(
+                record_usage(
+                    self.embedding_model,
+                    "embedding",
+                    data.get("usage"),
+                    provider=data.get("provider"),
+                    latency_ms=latency_ms,
+                )
+            )
             return [item["embedding"] for item in ordered]
         except httpx.HTTPError as exc:
             raise AIEngineError(f"OpenRouter embedding request failed: {_describe_error(exc)}") from exc
@@ -115,8 +126,19 @@ class OpenRouterEngine(AIEngine):
                 return resp.json()
 
         try:
+            started_at = time.perf_counter()
             data = await _with_retry(_call)
-            asyncio.create_task(record_usage(self.model, "chat", data.get("usage")))
+            latency_ms = round((time.perf_counter() - started_at) * 1000)
+            asyncio.create_task(
+                record_usage(
+                    self.model,
+                    "chat",
+                    data.get("usage"),
+                    provider=data.get("provider"),
+                    finish_reason=data["choices"][0].get("finish_reason"),
+                    latency_ms=latency_ms,
+                )
+            )
             return data["choices"][0]["message"]["content"].strip()
         except httpx.HTTPError as exc:
             raise AIEngineError(f"OpenRouter chat request failed: {_describe_error(exc)}") from exc

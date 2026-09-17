@@ -21,21 +21,21 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-xl font-semibold text-slate-800">Dashboard</h1>
+      <h1 className="mb-6 text-xl font-semibold text-slate-800 dark:text-slate-100">Dashboard</h1>
       <div className="grid grid-cols-2 gap-4">
         <Link
           href="/admin/faqs"
-          className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm hover:border-blue-300"
+          className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm hover:border-sawo/40 dark:border-white/10 dark:bg-night-surface dark:hover:border-sawo-light/50"
         >
-          <p className="text-sm text-slate-500">Knowledge Base Entries</p>
-          <p className="mt-1 text-3xl font-semibold text-slate-800">{faqCount ?? "..."}</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Knowledge Base Entries</p>
+          <p className="mt-1 text-3xl font-semibold text-slate-800 dark:text-slate-100">{faqCount ?? "..."}</p>
         </Link>
         <Link
           href="/admin/unanswered"
-          className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm hover:border-blue-300"
+          className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm hover:border-sawo/40 dark:border-white/10 dark:bg-night-surface dark:hover:border-sawo-light/50"
         >
-          <p className="text-sm text-slate-500">Pending Unanswered Questions</p>
-          <p className="mt-1 text-3xl font-semibold text-slate-800">{pendingCount ?? "..."}</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Pending Unanswered Questions</p>
+          <p className="mt-1 text-3xl font-semibold text-slate-800 dark:text-slate-100">{pendingCount ?? "..."}</p>
         </Link>
       </div>
     </div>

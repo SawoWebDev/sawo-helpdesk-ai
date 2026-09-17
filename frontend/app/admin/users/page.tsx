@@ -68,38 +68,38 @@ export default function UsersPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-xl font-semibold text-slate-800">User Management</h1>
+      <h1 className="mb-6 text-xl font-semibold text-slate-800 dark:text-slate-100">User Management</h1>
 
-      <form onSubmit={handleCreate} className="mb-6 flex flex-wrap items-end gap-2 rounded-lg border border-slate-200 bg-white p-4">
+      <form onSubmit={handleCreate} className="mb-6 flex flex-wrap items-end gap-2 rounded-lg border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-night-surface">
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-slate-500">Username</label>
-          <input value={username} onChange={(e) => setUsername(e.target.value)} required className="rounded border border-slate-300 px-3 py-2 text-sm" />
+          <label className="text-xs text-slate-500 dark:text-slate-400">Username</label>
+          <input value={username} onChange={(e) => setUsername(e.target.value)} required className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100" />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-slate-500">Email (optional)</label>
-          <input value={email} onChange={(e) => setEmail(e.target.value)} className="rounded border border-slate-300 px-3 py-2 text-sm" />
+          <label className="text-xs text-slate-500 dark:text-slate-400">Email (optional)</label>
+          <input value={email} onChange={(e) => setEmail(e.target.value)} className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100" />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-slate-500">Password</label>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} className="rounded border border-slate-300 px-3 py-2 text-sm" />
+          <label className="text-xs text-slate-500 dark:text-slate-400">Password</label>
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100" />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-slate-500">Role</label>
-          <select value={role} onChange={(e) => setRole(e.target.value as "admin" | "agent")} className="rounded border border-slate-300 px-3 py-2 text-sm">
+          <label className="text-xs text-slate-500 dark:text-slate-400">Role</label>
+          <select value={role} onChange={(e) => setRole(e.target.value as "admin" | "agent")} className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100">
             <option value="agent">Agent</option>
             <option value="admin">Admin</option>
           </select>
         </div>
-        <button type="submit" className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white">
+        <button type="submit" className="rounded bg-sawo px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sawo-dark dark:bg-sawo-dark dark:hover:bg-sawo-darker">
           Add User
         </button>
       </form>
 
-      {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
+      {error && <p className="mb-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
 
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-white/10 dark:bg-night-surface">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-slate-500">
+          <thead className="bg-slate-50 text-left text-slate-500 dark:bg-white/5 dark:text-slate-400">
             <tr>
               <th className="px-4 py-2">Username</th>
               <th className="px-4 py-2">Email</th>
@@ -110,17 +110,17 @@ export default function UsersPage() {
           </thead>
           <tbody>
             {users.map((u) => (
-              <tr key={u.id} className="border-t border-slate-100">
+              <tr key={u.id} className="border-t border-slate-100 dark:border-white/10">
                 <td className="px-4 py-2">{u.username}</td>
-                <td className="px-4 py-2 text-slate-500">{u.email ?? "—"}</td>
+                <td className="px-4 py-2 text-slate-500 dark:text-slate-400">{u.email ?? "—"}</td>
                 <td className="px-4 py-2">{u.role}</td>
                 <td className="px-4 py-2">{u.is_active ? "Active" : "Deactivated"}</td>
                 <td className="px-4 py-2 text-right">
-                  <button onClick={() => toggleActive(u)} className="mr-3 text-blue-600">
+                  <button onClick={() => toggleActive(u)} className="mr-3 text-sawo-dark dark:text-sawo-light">
                     {u.is_active ? "Deactivate" : "Activate"}
                   </button>
                   {currentUser?.id !== u.id && (
-                    <button onClick={() => handleDelete(u)} className="text-red-600">
+                    <button onClick={() => handleDelete(u)} className="text-red-600 dark:text-red-400">
                       Delete
                     </button>
                   )}

@@ -18,6 +18,7 @@ from app.models.unanswered import UnansweredQuestion
 from app.models.vault_entry import VaultEntry
 from app.rag.filler import is_filler
 from app.rag.reindex import embed_entry
+from app.services.ai_usage import session_context
 
 REFUSAL_SENTINEL = "NOT_FOUND"
 
@@ -181,6 +182,17 @@ class RagResult:
 
 
 async def answer_question(
+    db: AsyncSession, question: str, session_id: str, ip_address: str | None = None
+) -> RagResult:
+    # Lets every AI call this question triggers (relevance check, embedding,
+    # generation, grounding check) record which conversation it belongs to
+    # without threading session_id through AIEngine.generate()/embed() and
+    # every helper below that calls them — see services/ai_usage.py.
+    with session_context(session_id):
+        return await _answer_question_impl(db, question, session_id, ip_address)
+
+
+async def _answer_question_impl(
     db: AsyncSession, question: str, session_id: str, ip_address: str | None = None
 ) -> RagResult:
     settings_values = await get_all_settings(db)

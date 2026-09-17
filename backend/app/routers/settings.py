@@ -5,7 +5,9 @@ from app.core import setting_keys as keys
 from app.core.deps import require_admin
 from app.crud.settings import get_all_settings, set_settings_bulk
 from app.db.session import get_db
+from app.schemas.model_catalog import ModelCatalogEntry
 from app.schemas.settings import SettingsOut, SettingsUpdate
+from app.services.model_catalog import get_curated_models
 
 router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depends(require_admin)])
 
@@ -31,6 +33,13 @@ def _to_out(values: dict[str, str]) -> SettingsOut:
 async def get_settings(db: AsyncSession = Depends(get_db)):
     values = await get_all_settings(db)
     return _to_out(values)
+
+
+# NOTE: a static path, must stay registered before any dynamic /{...} route
+# would be added later (same gotcha as elsewhere in this app's routers).
+@router.get("/models", response_model=list[ModelCatalogEntry])
+async def list_models():
+    return await get_curated_models()
 
 
 @router.post("", response_model=SettingsOut)

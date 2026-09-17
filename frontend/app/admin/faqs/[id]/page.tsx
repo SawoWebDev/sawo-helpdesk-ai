@@ -16,8 +16,8 @@ export default function EditFAQPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-xl font-semibold text-slate-800">Edit FAQ Entry</h1>
-      {initial ? <FAQForm faqId={faqId} initial={initial} /> : <p className="text-slate-400">Loading...</p>}
+      <h1 className="mb-6 text-xl font-semibold text-slate-800 dark:text-slate-100">Edit FAQ Entry</h1>
+      {initial ? <FAQForm faqId={faqId} initial={initial} /> : <p className="text-slate-400 dark:text-slate-500">Loading...</p>}
     </div>
   );
 }

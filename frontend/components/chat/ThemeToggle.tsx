@@ -49,7 +49,7 @@ function triggerRevealHits(x: number, y: number, radius: number) {
   });
 }
 
-export default function ThemeToggle() {
+export default function ThemeToggle({ variant = "brand" }: { variant?: "brand" | "neutral" }) {
   const [isDark, setIsDark] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -105,8 +105,16 @@ export default function ThemeToggle() {
       title={isDark ? "Light mode" : "Dark mode"}
       className="group relative h-9 w-9 shrink-0 rounded-full"
     >
-      {/* The button stays put and owns the hover; only this face lifts and presses */}
-      <span className="glass glass-3d glass-edge relative flex h-full w-full items-center justify-center rounded-full border border-white/30 bg-gradient-to-b from-white/30 to-white/5 text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.6),inset_0_-3px_4px_rgba(0,0,0,0.2),0_3px_6px_rgba(0,0,0,0.25)] backdrop-blur-md transition-[transform,box-shadow] duration-200 will-change-transform [backface-visibility:hidden] group-hover:shadow-[inset_0_1px_1px_rgba(255,255,255,0.7),inset_0_-3px_4px_rgba(0,0,0,0.2),0_8px_14px_-4px_rgba(0,0,0,0.35)] motion-safe:group-hover:-translate-y-0.5 motion-safe:group-active:translate-y-0 motion-safe:group-active:scale-95">
+      {/* The button stays put and owns the hover; only this face lifts and presses.
+          "brand" sits on the colored chat header (translucent white-on-color); "neutral"
+          sits on a plain admin surface, so it carries its own light/dark background. */}
+      <span
+        className={`glass glass-3d glass-edge relative flex h-full w-full items-center justify-center rounded-full border backdrop-blur-md transition-[transform,box-shadow] duration-200 will-change-transform [backface-visibility:hidden] motion-safe:group-hover:-translate-y-0.5 motion-safe:group-active:translate-y-0 motion-safe:group-active:scale-95 ${
+          variant === "neutral"
+            ? "border-slate-300 bg-white text-slate-600 shadow-[inset_0_1px_1px_rgba(255,255,255,0.8),0_1px_3px_rgba(0,0,0,0.1)] group-hover:border-slate-400 group-hover:shadow-[0_4px_10px_-3px_rgba(0,0,0,0.2)] dark:border-white/30 dark:bg-gradient-to-b dark:from-white/30 dark:to-white/5 dark:text-white dark:shadow-[inset_0_1px_1px_rgba(255,255,255,0.6),inset_0_-3px_4px_rgba(0,0,0,0.2),0_3px_6px_rgba(0,0,0,0.25)] dark:group-hover:shadow-[inset_0_1px_1px_rgba(255,255,255,0.7),inset_0_-3px_4px_rgba(0,0,0,0.2),0_8px_14px_-4px_rgba(0,0,0,0.35)]"
+            : "border-white/30 bg-gradient-to-b from-white/30 to-white/5 text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.6),inset_0_-3px_4px_rgba(0,0,0,0.2),0_3px_6px_rgba(0,0,0,0.25)] group-hover:shadow-[inset_0_1px_1px_rgba(255,255,255,0.7),inset_0_-3px_4px_rgba(0,0,0,0.2),0_8px_14px_-4px_rgba(0,0,0,0.35)]"
+        }`}
+      >
         <svg
           width="16"
           height="16"
