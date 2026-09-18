@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
-import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
+import { apiDelete, apiGet, apiPost, downloadFile, getToken, ApiError } from "@/lib/api";
 import OpenRouterModelSelect from "@/components/admin/OpenRouterModelSelect";
 
 // Matches the backend's settings.py MASK constant — the API never returns
@@ -49,6 +49,10 @@ export default function SettingsPage() {
   const [resettingKey, setResettingKey] = useState<string | null>(null);
   const [resetMessage, setResetMessage] = useState<string | null>(null);
   const [resetError, setResetError] = useState<string | null>(null);
+  const [kbExporting, setKbExporting] = useState(false);
+  const [kbImporting, setKbImporting] = useState(false);
+  const [kbMessage, setKbMessage] = useState<string | null>(null);
+  const [kbError, setKbError] = useState<string | null>(null);
 
   useEffect(() => {
     apiGet<Settings>("/api/settings").then((s) => {
@@ -69,6 +73,55 @@ export default function SettingsPage() {
       setResetError(err instanceof ApiError ? err.message : `Failed to reset ${target.label}`);
     } finally {
       setResettingKey(null);
+    }
+  }
+
+  async function handleExportKnowledgeBase() {
+    setKbError(null);
+    setKbMessage(null);
+    setKbExporting(true);
+    try {
+      await downloadFile("/api/knowledge-base/export", "knowledge_base_export.xlsx");
+    } catch (err) {
+      setKbError(err instanceof ApiError ? err.message : "Failed to export knowledge base");
+    } finally {
+      setKbExporting(false);
+    }
+  }
+
+  async function handleImportKnowledgeBase(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setKbError(null);
+    setKbMessage(null);
+    setKbImporting(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const token = getToken();
+      const res = await fetch("/api/knowledge-base/import", {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new ApiError(res.status, data.detail ?? "Failed to import knowledge base");
+      }
+      const faqErrors = data.faqs.errors.length;
+      const libraryErrors = data.library.errors.length;
+      setKbMessage(
+        `FAQs — created: ${data.faqs.created}, skipped: ${data.faqs.skipped}, failed: ${data.faqs.failed}. ` +
+          `Library — created: ${data.library.created}, skipped: ${data.library.skipped}, failed: ${data.library.failed}.` +
+          (faqErrors || libraryErrors ? " See console for row errors." : "")
+      );
+      if (faqErrors) console.table(data.faqs.errors);
+      if (libraryErrors) console.table(data.library.errors);
+    } catch (err) {
+      setKbError(err instanceof ApiError ? err.message : "Failed to import knowledge base");
+    } finally {
+      setKbImporting(false);
+      e.target.value = "";
     }
   }
 
@@ -135,6 +188,48 @@ export default function SettingsPage() {
 
       {activeTab === "data" && (
         <div>
+          <div className="mb-6 rounded-lg border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-night-surface">
+            <h2 className="mb-1 text-sm font-semibold text-slate-800 dark:text-slate-100">Knowledge Base Backup</h2>
+            <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+              Export every FAQ and Library entry into one Excel file, or import one to restore or move a knowledge
+              base to another deployment without recrawling.
+            </p>
+            {kbMessage && (
+              <p className="mb-3 rounded bg-sawo/10 px-3 py-2 text-sm text-sawo-darker dark:bg-sawo/15 dark:text-sawo-light">
+                {kbMessage}
+              </p>
+            )}
+            {kbError && (
+              <p className="mb-3 rounded bg-red-50 px-3 py-2 text-sm text-red-800 dark:bg-red-500/15 dark:text-red-300">
+                {kbError}
+              </p>
+            )}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleExportKnowledgeBase}
+                disabled={kbExporting}
+                className="rounded border border-slate-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/15"
+              >
+                {kbExporting ? "Exporting..." : "Export Knowledge Base"}
+              </button>
+              <label
+                className={`cursor-pointer rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 ${
+                  kbImporting ? "cursor-not-allowed opacity-50" : ""
+                }`}
+              >
+                {kbImporting ? "Importing..." : "Import Knowledge Base"}
+                <input
+                  type="file"
+                  accept=".xlsx"
+                  onChange={handleImportKnowledgeBase}
+                  disabled={kbImporting}
+                  className="hidden"
+                />
+              </label>
+            </div>
+          </div>
+
           {resetError && (
             <p className="mb-4 rounded bg-red-50 px-3 py-2 text-sm text-red-800 dark:bg-red-500/15 dark:text-red-300">
               {resetError}

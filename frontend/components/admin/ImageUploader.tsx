@@ -45,6 +45,15 @@ export default function ImageUploader({
     setUrlInput("");
   }
 
+  function handleUrlInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== "Enter") return;
+    // Without this, Enter here submits the surrounding FAQ form (the
+    // default browser behavior for a text input in a <form>) instead of
+    // adding the URL — silently discarding whatever was just typed here.
+    e.preventDefault();
+    addUrl();
+  }
+
   function removeUrl(url: string) {
     onChange(urls.filter((u) => u !== url));
   }
@@ -75,6 +84,7 @@ export default function ImageUploader({
           type="text"
           value={urlInput}
           onChange={(e) => setUrlInput(e.target.value)}
+          onKeyDown={handleUrlInputKeyDown}
           placeholder="Or paste an external image URL"
           className="flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
         />

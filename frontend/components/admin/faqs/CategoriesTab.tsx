@@ -11,7 +11,7 @@ interface Category extends CategoryOption {
   library_source_count: number;
 }
 
-export default function CategoriesPage() {
+export default function CategoriesTab() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [name, setName] = useState("");
   const [parentId, setParentId] = useState<number | null>(null);
@@ -66,8 +66,6 @@ export default function CategoriesPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-xl font-semibold text-slate-800 dark:text-slate-100">Categories</h1>
-
       <form onSubmit={handleCreate} className="mb-6 flex items-end gap-2 rounded-lg border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-night-surface">
         <div className="flex flex-col gap-1">
           <label className="text-xs text-slate-500 dark:text-slate-400">Name</label>

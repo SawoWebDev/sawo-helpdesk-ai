@@ -13,6 +13,7 @@ from app.routers import (
     chat,
     faqs,
     imports,
+    knowledge_base,
     library,
     logs,
     settings as settings_router,
@@ -53,6 +54,7 @@ app.include_router(users.router)
 app.include_router(admin.router)
 app.include_router(vault.router)
 app.include_router(library.router)
+app.include_router(knowledge_base.router)
 app.include_router(usage.router)
 app.include_router(analytics.router)
 

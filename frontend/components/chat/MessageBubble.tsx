@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { Check, Copy } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import BotAvatar from "./BotAvatar";
 
@@ -12,8 +14,20 @@ export interface ChatMessage {
   time?: string;
 }
 
-export default function MessageBubble({ message }: { message: ChatMessage }) {
+export default function MessageBubble({ message, onCopy }: { message: ChatMessage; onCopy?: (text: string) => void }) {
   const isUser = message.role === "user";
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(message.text);
+    } catch {
+      return;
+    }
+    setCopied(true);
+    onCopy?.(message.text);
+    setTimeout(() => setCopied(false), 1500);
+  }
 
   return (
     <div className={`flex items-start gap-2 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
@@ -75,7 +89,22 @@ export default function MessageBubble({ message }: { message: ChatMessage }) {
             </div>
           )}
         </div>
-        {message.time && <span className="mt-1 px-1 text-[10px] text-slate-400 dark:text-slate-500">{message.time}</span>}
+        {(message.time || !isUser) && (
+          <span className="mt-1 flex items-center gap-1.5 px-1">
+            {message.time && <span className="text-[10px] text-slate-400 dark:text-slate-500">{message.time}</span>}
+            {!isUser && (
+              <button
+                type="button"
+                onClick={handleCopy}
+                aria-label="Copy response"
+                title="Copy response"
+                className="flex h-4 w-4 items-center justify-center text-slate-400 transition-colors hover:text-sawo dark:text-slate-500 dark:hover:text-sawo-light"
+              >
+                {copied ? <Check size={12} strokeWidth={2.25} /> : <Copy size={12} strokeWidth={2.25} />}
+              </button>
+            )}
+          </span>
+        )}
       </div>
     </div>
   );

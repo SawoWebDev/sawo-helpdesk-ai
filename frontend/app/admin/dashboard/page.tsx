@@ -114,7 +114,7 @@ export default function DashboardPage() {
           <p className="mt-1 text-3xl font-semibold text-slate-800 dark:text-slate-100">{faqCount ?? "..."}</p>
         </Link>
         <Link
-          href="/admin/unanswered"
+          href="/admin/faqs?tab=unanswered"
           className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm hover:border-sawo/40 dark:border-white/10 dark:bg-night-surface dark:hover:border-sawo-light/50"
         >
           <p className="text-sm text-slate-500 dark:text-slate-400">Pending Unanswered Questions</p>
@@ -194,7 +194,7 @@ export default function DashboardPage() {
         <Card
           title="Recent Unanswered Questions"
           action={
-            <Link href="/admin/unanswered" className="text-xs font-medium text-sawo-dark hover:underline dark:text-sawo-light">
+            <Link href="/admin/faqs?tab=unanswered" className="text-xs font-medium text-sawo-dark hover:underline dark:text-sawo-light">
               Review all →
             </Link>
           }

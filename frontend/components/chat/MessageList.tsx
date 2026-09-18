@@ -9,10 +9,12 @@ export default function MessageList({
   messages,
   loading,
   onSelectSuggestion,
+  onCopyMessage,
 }: {
   messages: ChatMessage[];
   loading: boolean;
   onSelectSuggestion: (text: string) => void;
+  onCopyMessage?: (text: string) => void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -30,7 +32,7 @@ export default function MessageList({
         )}
 
         {messages.map((message, idx) => (
-          <MessageBubble key={idx} message={message} />
+          <MessageBubble key={idx} message={message} onCopy={onCopyMessage} />
         ))}
 
         {loading && (

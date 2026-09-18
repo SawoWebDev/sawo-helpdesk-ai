@@ -65,6 +65,10 @@ SYSTEM_PROMPT = (
     "resolve a pronoun like 'it' or 'that', or to build on what was already established. "
     "If the current question is unrelated to that earlier conversation, ignore it entirely "
     "and answer independently using only the context below. "
+    "Whenever you mention a URL from the context, never write the raw URL out in the "
+    "sentence (e.g. not 'the Dragonfire Series page (https://example.com/dragonfire/)'). "
+    "Instead format it as a Markdown inline link with short, descriptive text as the "
+    "label, e.g. 'the [Dragonfire Series page](https://example.com/dragonfire/)'. "
     f"If none of the context is actually relevant, or it doesn't contain enough "
     f"information to answer the question, respond with exactly: {REFUSAL_SENTINEL}"
 )

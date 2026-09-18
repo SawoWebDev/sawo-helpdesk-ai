@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiGet, apiPost, apiPut, ApiError } from "@/lib/api";
 import CategorySelect, { CategoryOption } from "./CategorySelect";
@@ -67,6 +67,15 @@ export default function FAQForm({
     setRefInput("");
   }
 
+  function handleRefInputKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== "Enter") return;
+    // Without this, Enter here submits the whole FAQ form (the default
+    // browser behavior for a text input in a <form>) instead of adding the
+    // URL — silently discarding whatever was just typed here.
+    e.preventDefault();
+    addReferenceUrl();
+  }
+
   return (
     <form onSubmit={handleSubmit} className="flex max-w-2xl flex-col gap-4">
       <div className="flex flex-col gap-1">
@@ -124,6 +133,7 @@ export default function FAQForm({
           <input
             value={refInput}
             onChange={(e) => setRefInput(e.target.value)}
+            onKeyDown={handleRefInputKeyDown}
             placeholder="https://..."
             className="flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
           />

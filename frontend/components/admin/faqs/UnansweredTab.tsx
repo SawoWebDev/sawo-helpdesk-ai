@@ -22,7 +22,7 @@ interface Paginated<T> {
   total: number;
 }
 
-export default function UnansweredPage() {
+export default function UnansweredTab({ onChange }: { onChange?: () => void }) {
   const [items, setItems] = useState<UnansweredQuestion[]>([]);
   const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [total, setTotal] = useState(0);
@@ -69,6 +69,7 @@ export default function UnansweredPage() {
     });
     setExpandedId(null);
     await load();
+    onChange?.();
   }
 
   async function assignCategory(id: number, categoryId: number | null) {
@@ -80,6 +81,7 @@ export default function UnansweredPage() {
     if (!confirm("Dismiss this question?")) return;
     await apiDelete(`/api/unanswered/${id}`);
     await load();
+    onChange?.();
   }
 
   return (

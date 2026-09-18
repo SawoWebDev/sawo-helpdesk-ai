@@ -75,7 +75,7 @@ export default function WelcomeCards({
       <BotAvatar className="h-16 w-16 rounded-full shadow-sm" />
 
       <div className="space-y-1.5">
-        <h2 className="text-xl font-bold text-slate-800 dark:text-white">Welcome to SAWO Helpdesk</h2>
+        <h2 className="text-xl font-bold text-slate-800 dark:text-white">SAWO Helpdesk</h2>
         <p className="mx-auto max-w-xs text-sm text-slate-500 dark:text-slate-400">
           Internal help for SAWO teams. Ask a question or pick a topic below.
         </p>
