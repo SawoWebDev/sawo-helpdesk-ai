@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.factory import get_embedding_engine
 from app.db.vec_store import FAQ_VEC_TABLE, delete_embedding, upsert_embedding
 from app.models.faq import FAQEntry
+from app.services.ai_usage import FEATURE_FAQ_REINDEX, feature_context
 
 
 def _embedding_text(entry: FAQEntry) -> str:
@@ -18,7 +19,8 @@ async def reindex_all(db: AsyncSession) -> int:
         return 0
 
     texts = [_embedding_text(entry) for entry in entries]
-    vectors = await engine.embed(texts)
+    with feature_context(FEATURE_FAQ_REINDEX):
+        vectors = await engine.embed(texts)
 
     for entry, vector in zip(entries, vectors):
         await upsert_embedding(db, FAQ_VEC_TABLE, entry.id, vector)
@@ -37,6 +39,7 @@ async def embed_entry(db: AsyncSession, entry: FAQEntry) -> None:
             entry.has_embedding = False
         return
     engine = await get_embedding_engine(db)
-    [vector] = await engine.embed([_embedding_text(entry)])
+    with feature_context(FEATURE_FAQ_REINDEX):
+        [vector] = await engine.embed([_embedding_text(entry)])
     await upsert_embedding(db, FAQ_VEC_TABLE, entry.id, vector)
     entry.has_embedding = True

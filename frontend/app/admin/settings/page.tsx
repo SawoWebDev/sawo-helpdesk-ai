@@ -1,8 +1,13 @@
 "use client";
 
-import { Fragment, FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
 import { apiDelete, apiGet, apiPost, ApiError } from "@/lib/api";
 import OpenRouterModelSelect from "@/components/admin/OpenRouterModelSelect";
+
+// Matches the backend's settings.py MASK constant — the API never returns
+// the real key, only this sentinel when one is saved.
+const OPENROUTER_KEY_MASK = "********";
 
 interface Settings {
   openrouter_api_key: string;
@@ -18,32 +23,6 @@ interface Settings {
 
 const MAX_SITEMAP_URLS_MIN = 10;
 const MAX_SITEMAP_URLS_MAX = 100_000_000;
-
-interface ModelUsage {
-  model: string;
-  is_free: boolean;
-  requests_total: number;
-  tokens_total: number;
-  cost_total_usd: number;
-  requests_today: number;
-  tokens_today: number;
-  cost_today_usd: number;
-  last_used_at: string | null;
-}
-
-interface DailyUsage {
-  day: string;
-  requests: number;
-  tokens: number;
-  cost_usd: number;
-}
-
-function formatCost(usd: number): string {
-  if (usd === 0) return "$0.00";
-  if (usd < 0.0001) return `<$0.0001`;
-  if (usd < 0.01) return `$${usd.toFixed(4)}`;
-  return `$${usd.toFixed(2)}`;
-}
 
 interface ResetTarget {
   key: string;
@@ -62,11 +41,8 @@ const RESET_TARGETS: ResetTarget[] = [
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<"general" | "data">("general");
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [modelUsage, setModelUsage] = useState<ModelUsage[] | null>(null);
-  const [expandedModel, setExpandedModel] = useState<string | null>(null);
-  const [dailyUsage, setDailyUsage] = useState<DailyUsage[] | null>(null);
-  const [dailyLoading, setDailyLoading] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState("");
+  const [editingKey, setEditingKey] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -74,32 +50,11 @@ export default function SettingsPage() {
   const [resetMessage, setResetMessage] = useState<string | null>(null);
   const [resetError, setResetError] = useState<string | null>(null);
 
-  function loadUsage() {
-    apiGet<ModelUsage[]>("/api/usage/models").then(setModelUsage);
-  }
-
-  async function toggleModel(model: string) {
-    if (expandedModel === model) {
-      setExpandedModel(null);
-      setDailyUsage(null);
-      return;
-    }
-    setExpandedModel(model);
-    setDailyUsage(null);
-    setDailyLoading(true);
-    try {
-      const data = await apiGet<DailyUsage[]>(`/api/usage/models/daily?model=${encodeURIComponent(model)}`);
-      setDailyUsage(data);
-    } finally {
-      setDailyLoading(false);
-    }
-  }
-
   useEffect(() => {
-    apiGet<Settings>("/api/settings").then(setSettings);
-    loadUsage();
-    const interval = setInterval(loadUsage, 30000);
-    return () => clearInterval(interval);
+    apiGet<Settings>("/api/settings").then((s) => {
+      setSettings(s);
+      setEditingKey(!s.openrouter_api_key);
+    });
   }, []);
 
   async function handleReset(target: ResetTarget) {
@@ -134,12 +89,14 @@ export default function SettingsPage() {
         openrouter_model: settings.openrouter_model,
         max_sitemap_urls: settings.max_sitemap_urls,
       };
-      if (apiKeyInput.trim()) payload.openrouter_api_key = apiKeyInput.trim();
+      if (editingKey && apiKeyInput.trim() && apiKeyInput !== OPENROUTER_KEY_MASK) {
+        payload.openrouter_api_key = apiKeyInput.trim();
+      }
       const updated = await apiPost<Settings>("/api/settings", payload);
       setSettings(updated);
       setApiKeyInput("");
+      setEditingKey(!updated.openrouter_api_key);
       setMessage("Settings saved.");
-      loadUsage();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to save settings");
     } finally {
@@ -223,13 +180,49 @@ export default function SettingsPage() {
           <form onSubmit={handleSubmit} className="flex max-w-xl flex-col gap-4">
             <div className="flex flex-col gap-1">
               <label className="text-sm font-medium text-slate-700 dark:text-slate-300">OpenRouter API Key</label>
-              <input
-                type="password"
-                value={apiKeyInput}
-                onChange={(e) => setApiKeyInput(e.target.value)}
-                placeholder={settings.openrouter_api_key || "Not set"}
-                className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
-              />
+              {editingKey ? (
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={apiKeyInput}
+                    onChange={(e) => setApiKeyInput(e.target.value)}
+                    placeholder="Paste your OpenRouter API key"
+                    autoComplete="off"
+                    autoFocus={!!settings.openrouter_api_key}
+                    className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
+                  />
+                  {settings.openrouter_api_key && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingKey(false);
+                        setApiKeyInput("");
+                      }}
+                      className="shrink-0 rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-white/15 dark:text-slate-300 dark:hover:bg-white/5"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-2 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5">
+                  <span className="select-none font-mono tracking-widest text-slate-500 dark:text-slate-400">
+                    {OPENROUTER_KEY_MASK}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setEditingKey(true)}
+                    className="shrink-0 text-xs font-medium text-sawo-dark hover:underline dark:text-sawo-light"
+                  >
+                    Change key
+                  </button>
+                </div>
+              )}
+              <p className="text-xs text-slate-400 dark:text-slate-500">
+                {settings.openrouter_api_key
+                  ? "A key is saved (shown masked above). Click \"Change key\" to replace it."
+                  : "No key saved yet — paste one to enable the AI engine."}
+              </p>
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-sm font-medium text-slate-700 dark:text-slate-300">OpenRouter Model</label>
@@ -270,112 +263,18 @@ export default function SettingsPage() {
             </div>
           </form>
 
-          <div className="mt-8">
-            <h2 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-300">AI Usage Monitor</h2>
-            <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white dark:border-white/10 dark:bg-night-surface">
-              <table className="w-full min-w-[720px] text-sm">
-                <thead className="bg-slate-50 text-left text-slate-500 dark:bg-white/5 dark:text-slate-400">
-                  <tr>
-                    <th className="px-4 py-2" rowSpan={2}>
-                      Model
-                    </th>
-                    <th className="border-l border-slate-200 px-4 py-1 text-center dark:border-white/10" colSpan={2}>
-                      Today
-                    </th>
-                    <th className="border-l border-slate-200 px-4 py-1 text-center dark:border-white/10" colSpan={3}>
-                      All time
-                    </th>
-                  </tr>
-                  <tr className="text-xs">
-                    <th className="border-l border-slate-200 px-4 py-1 font-normal dark:border-white/10">Requests</th>
-                    <th className="px-4 py-1 font-normal">Tokens</th>
-                    <th className="border-l border-slate-200 px-4 py-1 font-normal dark:border-white/10">Requests</th>
-                    <th className="px-4 py-1 font-normal">Tokens</th>
-                    <th className="px-4 py-1 font-normal">Cost</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(modelUsage ?? []).map((m) => (
-                    <Fragment key={m.model}>
-                      <tr
-                        onClick={() => toggleModel(m.model)}
-                        className="cursor-pointer border-t border-slate-100 hover:bg-slate-50 dark:border-white/10 dark:hover:bg-white/5"
-                      >
-                        <td className="px-4 py-2">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <span className="shrink-0 text-slate-400 dark:text-slate-500">{expandedModel === m.model ? "▾" : "▸"}</span>
-                            <span className="truncate font-medium text-slate-800 dark:text-slate-100" title={m.model}>
-                              {m.model}
-                            </span>
-                            <span
-                              className={`shrink-0 rounded px-2 py-0.5 text-xs font-medium ${
-                                m.is_free
-                                  ? "bg-green-50 text-green-700 dark:bg-green-500/15 dark:text-green-300"
-                                  : "bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300"
-                              }`}
-                            >
-                              {m.is_free ? "Free" : "Paid"}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="border-l border-slate-100 px-4 py-2 dark:border-white/10">{m.requests_today}</td>
-                        <td className="px-4 py-2">{m.tokens_today.toLocaleString()}</td>
-                        <td className="border-l border-slate-100 px-4 py-2 dark:border-white/10">{m.requests_total}</td>
-                        <td className="px-4 py-2">{m.tokens_total.toLocaleString()}</td>
-                        <td className="px-4 py-2">{formatCost(m.cost_total_usd)}</td>
-                      </tr>
-                      {expandedModel === m.model && (
-                        <tr key={`${m.model}-detail`} className="border-t border-slate-100 bg-slate-50 dark:border-white/10 dark:bg-white/5">
-                          <td colSpan={6} className="px-4 py-3">
-                            {m.is_free && (
-                              <p className="mb-3 text-xs text-slate-400 dark:text-slate-500">
-                                Free OpenRouter models are rate-limited (typically 20 requests/min,
-                                200-1000/day) rather than billed — cost is always $0 for this model; token
-                                counts below are for tracking that quota.
-                              </p>
-                            )}
-                            {dailyLoading && <p className="text-xs text-slate-400 dark:text-slate-500">Loading daily breakdown...</p>}
-                            {!dailyLoading && dailyUsage && dailyUsage.length === 0 && (
-                              <p className="text-xs text-slate-400 dark:text-slate-500">No usage recorded yet.</p>
-                            )}
-                            {!dailyLoading && dailyUsage && dailyUsage.length > 0 && (
-                              <table className="w-full max-w-md text-xs">
-                                <thead className="text-left text-slate-500 dark:text-slate-400">
-                                  <tr>
-                                    <th className="py-1 pr-4 font-normal">Day</th>
-                                    <th className="py-1 pr-4 font-normal">Requests</th>
-                                    <th className="py-1 pr-4 font-normal">Tokens</th>
-                                    <th className="py-1 pr-4 font-normal">Cost</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {dailyUsage.map((d) => (
-                                    <tr key={d.day} className="border-t border-slate-200 dark:border-white/10">
-                                      <td className="py-1 pr-4">{d.day}</td>
-                                      <td className="py-1 pr-4">{d.requests}</td>
-                                      <td className="py-1 pr-4">{d.tokens.toLocaleString()}</td>
-                                      <td className="py-1 pr-4">{formatCost(d.cost_usd)}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            )}
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  ))}
-                  {modelUsage && modelUsage.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-6 text-center text-slate-400 dark:text-slate-500">
-                        No AI usage recorded yet.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <Link
+            href="/admin/analytics"
+            className="mt-8 flex max-w-xl items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4 text-sm shadow-sm transition-colors hover:border-sawo/40 dark:border-white/10 dark:bg-night-surface dark:hover:border-sawo-light/50"
+          >
+            <span>
+              <span className="block font-medium text-slate-800 dark:text-slate-100">AI usage &amp; cost analytics</span>
+              <span className="text-slate-500 dark:text-slate-400">
+                Per-model spend, request counts, and daily breakdowns live on the Analytics page.
+              </span>
+            </span>
+            <span className="shrink-0 font-medium text-sawo-dark dark:text-sawo-light">View Analytics →</span>
+          </Link>
         </>
       )}
     </div>

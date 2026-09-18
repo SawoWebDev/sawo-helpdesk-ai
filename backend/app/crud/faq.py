@@ -7,6 +7,7 @@ from app.ai.base import AIEngineError
 from app.ai.factory import get_embedding_engine
 from app.db.vec_store import FAQ_VEC_TABLE, delete_embedding, knn_search
 from app.models.faq import FAQEntry
+from app.services.ai_usage import FEATURE_FAQ_DEDUP, feature_context
 
 # How close two questions need to be, by their own question-only embeddings,
 # to treat them as the same underlying question (a rephrasing, not just a
@@ -81,7 +82,8 @@ async def find_duplicate_faq(
 
     try:
         embedding_engine = await get_embedding_engine(db)
-        candidate_vectors = await embedding_engine.embed([c.question for c in candidates])
+        with feature_context(FEATURE_FAQ_DEDUP):
+            candidate_vectors = await embedding_engine.embed([c.question for c in candidates])
     except AIEngineError:
         return None
 

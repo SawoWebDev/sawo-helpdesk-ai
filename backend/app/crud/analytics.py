@@ -142,6 +142,40 @@ async def get_chat_trend(db: AsyncSession, days: int) -> list[dict]:
     ]
 
 
+async def get_hourly_activity(db: AsyncSession, days: int) -> list[dict]:
+    """Message volume and AI spend bucketed by hour of day (UTC, 00-23),
+    summed across the last `days` calendar days — "what time of day is this
+    thing busiest," not a per-day series. Messages and cost come from two
+    separate tables (ChatLog / AIUsageLog) so they're aggregated independently
+    and merged by hour, the same two-source-by-hour approach as
+    sawo-chatbot's admin analytics endpoint."""
+    since = _days_ago_naive_utc(days)
+
+    message_rows = (
+        await db.execute(
+            select(ChatLog.created_at).where(ChatLog.created_at >= since)
+        )
+    ).scalars().all()
+    cost_rows = (
+        await db.execute(
+            select(AIUsageLog.created_at, AIUsageLog.cost_usd).where(AIUsageLog.created_at >= since)
+        )
+    ).all()
+
+    messages_by_hour: dict[str, int] = defaultdict(int)
+    for created_at in message_rows:
+        messages_by_hour[created_at.strftime("%H")] += 1
+
+    cost_by_hour: dict[str, float] = defaultdict(float)
+    for created_at, cost_usd in cost_rows:
+        cost_by_hour[created_at.strftime("%H")] += float(cost_usd or 0.0)
+
+    return [
+        {"hour": hour, "messages": messages_by_hour.get(hour, 0), "cost_usd": round(cost_by_hour.get(hour, 0.0), 6)}
+        for hour in (f"{h:02d}" for h in range(24))
+    ]
+
+
 async def get_confidence_buckets(
     db: AsyncSession, days: int, off_topic_threshold: float, confidence_threshold: float
 ) -> list[dict]:
@@ -198,6 +232,35 @@ async def get_faq_source_breakdown(db: AsyncSession) -> list[dict]:
         )
     ).all()
     return [{"source": source, "count": count} for source, count in rows]
+
+
+async def get_usage_by_feature(db: AsyncSession) -> list[dict]:
+    """One row per distinct AI process (feature) that has ever logged a
+    request — e.g. "library_ingest", "chat_answer_generation", "faq_dedup" —
+    most-costly first. NULL/legacy rows predating the feature column are
+    grouped under "other", same coalesce pattern as get_faq_source_breakdown."""
+    feature_expr = func.coalesce(AIUsageLog.feature, "other")
+    rows = (
+        await db.execute(
+            select(
+                feature_expr.label("feature"),
+                func.count(AIUsageLog.id),
+                func.coalesce(func.sum(AIUsageLog.total_tokens), 0),
+                func.coalesce(func.sum(AIUsageLog.cost_usd), 0.0),
+            )
+            .group_by(feature_expr)
+            .order_by(func.coalesce(func.sum(AIUsageLog.cost_usd), 0.0).desc())
+        )
+    ).all()
+    return [
+        {
+            "feature": feature,
+            "requests_total": requests,
+            "tokens_total": int(tokens),
+            "cost_total_usd": float(cost),
+        }
+        for feature, requests, tokens, cost in rows
+    ]
 
 
 async def get_content_growth(db: AsyncSession, days: int) -> list[dict]:

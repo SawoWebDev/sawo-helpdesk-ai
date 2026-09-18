@@ -13,6 +13,7 @@ from app.models.user import User
 from app.rag.reindex import embed_entry
 from app.schemas.common import PaginatedResponse
 from app.schemas.faq import FAQCreate, FAQOut, FAQUpdate
+from app.services.ai_usage import FEATURE_FAQ_DEDUP, feature_context
 
 router = APIRouter(prefix="/api/faqs", tags=["faqs"], dependencies=[Depends(require_agent_or_admin)])
 
@@ -48,7 +49,8 @@ async def create(payload: FAQCreate, db: AsyncSession = Depends(get_db)):
     question_vector: list[float] | None = None
     try:
         embedding_engine = await get_embedding_engine(db)
-        [question_vector] = await embedding_engine.embed([payload.question])
+        with feature_context(FEATURE_FAQ_DEDUP):
+            [question_vector] = await embedding_engine.embed([payload.question])
     except AIEngineError:
         pass  # falls back to the exact-text duplicate check below
 
@@ -97,7 +99,8 @@ async def update(faq_id: int, payload: FAQUpdate, db: AsyncSession = Depends(get
         question_vector: list[float] | None = None
         try:
             embedding_engine = await get_embedding_engine(db)
-            [question_vector] = await embedding_engine.embed([payload.question])
+            with feature_context(FEATURE_FAQ_DEDUP):
+                [question_vector] = await embedding_engine.embed([payload.question])
         except AIEngineError:
             pass  # falls back to the exact-text duplicate check below
 

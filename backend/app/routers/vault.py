@@ -24,6 +24,7 @@ from app.schemas.vault import (
     VaultEntryUpdate,
     VaultSearchResult,
 )
+from app.services.ai_usage import FEATURE_VAULT_SEARCH, feature_context
 
 router = APIRouter(prefix="/api/vault", tags=["vault"], dependencies=[Depends(require_agent_or_admin)])
 
@@ -56,7 +57,8 @@ async def search(q: str = Query(..., min_length=1), limit: int = Query(20, ge=1,
     semantic_results: list[tuple] = []
     try:
         embedding_engine = await get_embedding_engine(db)
-        [query_vector] = await embedding_engine.embed([q])
+        with feature_context(FEATURE_VAULT_SEARCH):
+            [query_vector] = await embedding_engine.embed([q])
         semantic_results = await semantic_search_vault(db, query_vector, limit=limit)
     except AIEngineError:
         # Keyword results alone still populate the UI if embeddings are unreachable.

@@ -21,6 +21,7 @@ from app.db.session import AsyncSessionLocal
 from app.db.vec_store import VAULT_VEC_TABLE, upsert_embedding
 from app.models.harvest_source import HarvestSource
 from app.services.chunking import chunk_text
+from app.services.ai_usage import FEATURE_LIBRARY_INGEST, feature_context
 from app.services.library_parsers import (
     ParseError,
     extract_html_text,
@@ -114,7 +115,8 @@ async def _ingest_text(db: AsyncSession, source: HarvestSource, text: str, title
 
     try:
         embedding_engine = await get_embedding_engine(db)
-        vectors = await embedding_engine.embed([c.text for c in chunks])
+        with feature_context(FEATURE_LIBRARY_INGEST):
+            vectors = await embedding_engine.embed([c.text for c in chunks])
     except AIEngineError as exc:
         await _mark_failed(db, source, f"Embedding failed: {exc}")
         return

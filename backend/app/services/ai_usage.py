@@ -34,6 +34,41 @@ def session_context(session_id: str | None):
         _current_session_id.reset(token)
 
 
+# Same contextvar approach as session_id above, but identifies WHICH process
+# made the call (crawl/ingest, FAQ dedup check, reindex, one of the chat
+# pipeline's several sub-calls, ...) rather than which conversation it
+# belongs to. Set tightly around each individual generate()/embed() call site
+# rather than around a whole enclosing function, so a shared helper like
+# _is_grounded self-identifies correctly no matter which feature called it.
+_current_feature: ContextVar[str | None] = ContextVar("current_feature", default=None)
+
+
+@contextmanager
+def feature_context(feature: str):
+    token = _current_feature.set(feature)
+    try:
+        yield
+    finally:
+        _current_feature.reset(token)
+
+
+# Feature taxonomy — one entry per distinct AI call site. Values are stored
+# verbatim in ai_usage_logs.feature and read back by crud.analytics for the
+# Analytics "AI Usage by Process" breakdown.
+FEATURE_CHAT_QUERY_EMBEDDING = "chat_query_embedding"
+FEATURE_RELEVANCE_CHECK = "relevance_check"
+FEATURE_CHAT_ANSWER_GENERATION = "chat_answer_generation"
+FEATURE_GROUNDING_CHECK = "grounding_check"
+FEATURE_CHAT_OFF_TOPIC_REPLY = "chat_off_topic_reply"
+FEATURE_LIBRARY_INGEST = "library_ingest"
+FEATURE_LIBRARY_SEARCH = "library_search"
+FEATURE_LIBRARY_SEARCH_ANSWER = "library_search_answer"
+FEATURE_VAULT_SEARCH = "vault_search"
+FEATURE_FAQ_DEDUP = "faq_dedup"
+FEATURE_FAQ_REINDEX = "faq_reindex"
+FEATURE_VAULT_REINDEX = "vault_reindex"
+
+
 async def record_usage(
     model: str,
     request_type: str,
@@ -56,6 +91,7 @@ async def record_usage(
                     total_tokens=int(usage.get("total_tokens") or 0),
                     cost_usd=float(usage.get("cost") or 0.0),
                     session_id=_current_session_id.get(),
+                    feature=_current_feature.get(),
                     provider=provider,
                     finish_reason=finish_reason,
                     latency_ms=latency_ms,

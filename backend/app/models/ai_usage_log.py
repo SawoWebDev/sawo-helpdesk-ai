@@ -26,6 +26,13 @@ class AIUsageLog(Base):
     # session context (FAQ generation, Library ingestion, reindexing). Lets
     # the Chat Logs "consumption" view attribute cost/tokens to a conversation.
     session_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # Which specific process made this call (e.g. "library_ingest",
+    # "chat_answer_generation", "faq_dedup") — set via services.ai_usage's
+    # feature_context contextvar at the individual generate()/embed() call
+    # site, not by the caller's identity. NULL for calls made before this
+    # column existed. Lets Analytics break down cost/tokens per process
+    # instead of just per model.
+    feature: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
     # OpenRouter's own response fields — which upstream inference provider it
     # routed the request to (e.g. "GMICloud" for an open-weight model like
     # deepseek-v4-flash), and how generation ended ("stop", "length", etc).

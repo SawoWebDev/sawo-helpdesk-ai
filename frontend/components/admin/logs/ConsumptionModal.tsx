@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { colorFor, fmtMs, formatCompact, formatCost, formatDurationShort, formatTime, money4, shortModel } from "./format";
+import { ModelIcon, providerMeta } from "@/lib/modelProviders";
 
 export interface SessionUsageRow {
   id: number;
@@ -20,9 +21,14 @@ export interface SessionUsageRow {
 }
 
 function ModelBadge({ model }: { model: string }) {
+  const hasIcon = !!providerMeta(model).icon;
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: colorFor(model) }} aria-hidden />
+      {hasIcon ? (
+        <ModelIcon id={model} />
+      ) : (
+        <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: colorFor(model) }} aria-hidden />
+      )}
       <span className="font-semibold">{shortModel(model)}</span>
     </span>
   );

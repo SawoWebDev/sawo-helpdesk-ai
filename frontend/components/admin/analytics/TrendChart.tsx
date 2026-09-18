@@ -32,7 +32,17 @@ function niceMax(value: number): number {
   return step * magnitude;
 }
 
-export default function TrendChart({ data, series }: { data: TrendPoint[]; series: TrendSeries[] }) {
+export default function TrendChart({
+  data,
+  series,
+  formatX = formatDayShort,
+  formatValue = (v: number) => v.toLocaleString(),
+}: {
+  data: TrendPoint[];
+  series: TrendSeries[];
+  formatX?: (day: string) => string;
+  formatValue?: (v: number) => string;
+}) {
   const isDark = useIsDark();
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(600);
@@ -90,7 +100,7 @@ export default function TrendChart({ data, series }: { data: TrendPoint[]; serie
               <g key={frac}>
                 <line x1={PADDING.left} x2={width - PADDING.right} y1={y} y2={y} stroke={gridColor} strokeWidth={1} />
                 <text x={PADDING.left - 6} y={y} textAnchor="end" dominantBaseline="middle" fontSize={10} fill={axisColor}>
-                  {Math.round(maxValue * frac).toLocaleString()}
+                  {formatValue(Math.round(maxValue * frac))}
                 </text>
               </g>
             );
@@ -99,7 +109,7 @@ export default function TrendChart({ data, series }: { data: TrendPoint[]; serie
           {data.map((d, i) =>
             i % xLabelEvery === 0 ? (
               <text key={d.day} x={xAt(i)} y={HEIGHT - 6} textAnchor="middle" fontSize={10} fill={axisColor}>
-                {formatDayShort(d.day)}
+                {formatX(d.day)}
               </text>
             ) : null
           )}
@@ -141,14 +151,14 @@ export default function TrendChart({ data, series }: { data: TrendPoint[]; serie
               left: Math.min(Math.max(xAt(hoverIndex) + 10, 0), width - 150),
             }}
           >
-            <p className="mb-1 font-medium text-slate-700 dark:text-slate-200">{hovered.day}</p>
+            <p className="mb-1 font-medium text-slate-700 dark:text-slate-200">{formatX(hovered.day)}</p>
             {series.map((s) => (
               <p key={s.key} className="flex items-center justify-between gap-3 text-slate-600 dark:text-slate-300">
                 <span className="flex items-center gap-1.5">
                   <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: pick(s.color, isDark) }} aria-hidden />
                   {s.label}
                 </span>
-                <span className="font-medium tabular-nums">{(hovered.values[s.key] ?? 0).toLocaleString()}</span>
+                <span className="font-medium tabular-nums">{formatValue(hovered.values[s.key] ?? 0)}</span>
               </p>
             ))}
           </div>

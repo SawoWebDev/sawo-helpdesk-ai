@@ -18,7 +18,15 @@ from app.models.unanswered import UnansweredQuestion
 from app.models.vault_entry import VaultEntry
 from app.rag.filler import is_filler
 from app.rag.reindex import embed_entry
-from app.services.ai_usage import session_context
+from app.services.ai_usage import (
+    FEATURE_CHAT_ANSWER_GENERATION,
+    FEATURE_CHAT_OFF_TOPIC_REPLY,
+    FEATURE_CHAT_QUERY_EMBEDDING,
+    FEATURE_GROUNDING_CHECK,
+    FEATURE_RELEVANCE_CHECK,
+    feature_context,
+    session_context,
+)
 
 REFUSAL_SENTINEL = "NOT_FOUND"
 
@@ -146,9 +154,10 @@ async def _is_grounded(engine, context: str, answer: str) -> bool:
     engine hiccup doesn't turn every question into a refusal — but an actual
     UNGROUNDED verdict is authoritative."""
     try:
-        verdict = await engine.generate(
-            GROUNDING_CHECK_SYSTEM_PROMPT, context, f"ANSWER:\n{answer}", temperature=0
-        )
+        with feature_context(FEATURE_GROUNDING_CHECK):
+            verdict = await engine.generate(
+                GROUNDING_CHECK_SYSTEM_PROMPT, context, f"ANSWER:\n{answer}", temperature=0
+            )
     except AIEngineError:
         return True
     first_word = verdict.strip().upper().split()[0] if verdict.strip() else ""
@@ -161,7 +170,8 @@ async def _is_on_topic(engine, question: str) -> bool:
     True (let the normal RAG/threshold flow decide) if the classify call fails,
     so an AI engine hiccup never silently blocks a real question."""
     try:
-        verdict = await engine.generate(RELEVANCE_SYSTEM_PROMPT, "", question, temperature=0)
+        with feature_context(FEATURE_RELEVANCE_CHECK):
+            verdict = await engine.generate(RELEVANCE_SYSTEM_PROMPT, "", question, temperature=0)
     except AIEngineError:
         return True
     first_word = verdict.strip().lower().split()[0] if verdict.strip() else ""
@@ -235,12 +245,13 @@ async def _answer_question_impl(
     # auto-promote-to-FAQ duplicate check below, which must compare against
     # what was actually asked, not this retrieval-only blend.
     try:
-        if history_rows:
-            retrieval_text = f"{history_rows[0].question_text} {question}"
-            query_vector, retrieval_vector = await embedding_engine.embed([question, retrieval_text])
-        else:
-            [query_vector] = await embedding_engine.embed([question])
-            retrieval_vector = query_vector
+        with feature_context(FEATURE_CHAT_QUERY_EMBEDDING):
+            if history_rows:
+                retrieval_text = f"{history_rows[0].question_text} {question}"
+                query_vector, retrieval_vector = await embedding_engine.embed([question, retrieval_text])
+            else:
+                [query_vector] = await embedding_engine.embed([question])
+                retrieval_vector = query_vector
     except AIEngineError:
         return await _fallback(
             db, question, fallback_message, None, engine_used="none",
@@ -356,9 +367,10 @@ async def _answer_question_impl(
     context = "\n\n".join(context_parts)
 
     try:
-        generated = await engine.generate(
-            SYSTEM_PROMPT, context, question, temperature=0, history=history_for_generation
-        )
+        with feature_context(FEATURE_CHAT_ANSWER_GENERATION):
+            generated = await engine.generate(
+                SYSTEM_PROMPT, context, question, temperature=0, history=history_for_generation
+            )
     except AIEngineError:
         return await _fallback(
             db, question, fallback_message, best_similarity, engine_used=engine.name,
@@ -489,7 +501,8 @@ async def _off_topic(
     what was actually said; falls back to the fixed configured message (still
     on-topic, still safe) if that call fails."""
     try:
-        generated = await engine.generate(OFF_TOPIC_SYSTEM_PROMPT, "", question)
+        with feature_context(FEATURE_CHAT_OFF_TOPIC_REPLY):
+            generated = await engine.generate(OFF_TOPIC_SYSTEM_PROMPT, "", question)
         if generated and _looks_like_real_reply(generated):
             answer = _sanitize_text(generated)
             engine_used = engine.name

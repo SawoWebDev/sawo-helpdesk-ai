@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { apiGet } from "@/lib/api";
+import { ModelIcon, providerMeta } from "@/lib/modelProviders";
 
 interface ModelCatalogEntry {
   id: string;
@@ -14,27 +15,6 @@ interface ModelCatalogEntry {
   price_per_m_output: number | null;
   tier: "cheap" | "balanced" | "premium" | null;
   recommended: boolean;
-}
-
-// Brand icons via Simple Icons' free CDN (an <img> that just disappears on
-// error rather than showing a broken-image glyph if a slug doesn't exist or
-// the CDN is unreachable — the provider label is always shown as text too,
-// so identification never actually depends on the icon loading).
-// "openai" is the one exception: cdn.simpleicons.org 404s on that slug (a
-// trademark-driven removal), so it's self-hosted at
-// /public/assets/icons/openai.svg instead (Simple Icons is CC0-licensed).
-// It can't be recolored via URL like the others, so it renders in its
-// default black on a small white chip so it stays legible in dark mode too.
-const PROVIDER_META: Record<string, { label: string; icon: string | null }> = {
-  openai: { label: "OpenAI", icon: "/assets/icons/openai.svg" },
-  anthropic: { label: "Anthropic", icon: "https://cdn.simpleicons.org/anthropic/191919" },
-  google: { label: "Google", icon: "https://cdn.simpleicons.org/google/4285F4" },
-  deepseek: { label: "DeepSeek", icon: "https://cdn.simpleicons.org/deepseek/4D6BFE" },
-};
-
-function providerMeta(id: string) {
-  const key = id.split("/")[0];
-  return PROVIDER_META[key] || { label: key, icon: null };
 }
 
 // A simple, at-a-glance price-tier badge — mirrors the backend's own
@@ -124,13 +104,19 @@ export default function OpenRouterModelSelect({ value, onChange }: { value: stri
         aria-expanded={open}
         className="flex w-full items-center justify-between gap-2.5 rounded border border-slate-300 px-3 py-2 text-left text-sm transition-colors hover:border-sawo/50 dark:border-white/15 dark:bg-white/5 dark:hover:border-sawo-light/40"
       >
-        <span className="min-w-0 flex-1 truncate">
+        <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
           {!value ? (
             <span className="text-slate-400 dark:text-slate-500">Select a model…</span>
           ) : selected ? (
-            <strong className="font-semibold text-slate-800 dark:text-slate-100">{selected.name}</strong>
+            <>
+              <ModelIcon id={selected.id} />
+              <strong className="truncate font-semibold text-slate-800 dark:text-slate-100">{selected.name}</strong>
+            </>
           ) : (
-            <span className="text-slate-700 dark:text-slate-200">{value}</span>
+            <>
+              <ModelIcon id={value} />
+              <span className="truncate text-slate-700 dark:text-slate-200">{value}</span>
+            </>
           )}
         </span>
         <ChevronDown size={16} className={`shrink-0 text-slate-400 transition-transform dark:text-slate-500 ${open ? "rotate-180" : ""}`} />
@@ -172,17 +158,7 @@ export default function OpenRouterModelSelect({ value, onChange }: { value: stri
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="inline-flex min-w-0 items-center gap-1.5">
-                    {provider.icon && (
-                      <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-white p-0.5">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={provider.icon}
-                          alt=""
-                          className="h-full w-full object-contain"
-                          onError={(e) => (e.currentTarget.style.display = "none")}
-                        />
-                      </span>
-                    )}
+                    <ModelIcon id={m.id} />
                     <span className="truncate text-[13.5px] font-bold text-slate-800 dark:text-slate-100">{m.name}</span>
                   </span>
                   {m.recommended && (

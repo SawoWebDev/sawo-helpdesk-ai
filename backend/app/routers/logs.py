@@ -18,6 +18,7 @@ from app.rag.reindex import embed_entry
 from app.schemas.chat_log import ChatLogOut, DeleteSessionsRequest, SessionSummary, SessionUsageOut
 from app.schemas.common import PaginatedResponse
 from app.schemas.faq import FAQOut
+from app.services.ai_usage import FEATURE_FAQ_DEDUP, feature_context
 
 router = APIRouter(prefix="/api/logs", tags=["logs"], dependencies=[Depends(require_agent_or_admin)])
 
@@ -242,7 +243,8 @@ async def save_log_as_faq(log_id: int, db: AsyncSession = Depends(get_db)):
     question_vector: list[float] | None = None
     try:
         embedding_engine = await get_embedding_engine(db)
-        [question_vector] = await embedding_engine.embed([log.question_text])
+        with feature_context(FEATURE_FAQ_DEDUP):
+            [question_vector] = await embedding_engine.embed([log.question_text])
     except AIEngineError:
         pass  # falls back to the exact-text duplicate check below
 

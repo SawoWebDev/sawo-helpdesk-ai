@@ -44,3 +44,16 @@ class ContentGrowthPoint(BaseModel):
     day: str
     by_source: dict[str, int]
     total: int
+
+
+class FeatureUsage(BaseModel):
+    feature: str
+    requests_total: int
+    tokens_total: int
+    cost_total_usd: float
+
+
+class HourlyActivity(BaseModel):
+    hour: str  # "00".."23", UTC
+    messages: int
+    cost_usd: float

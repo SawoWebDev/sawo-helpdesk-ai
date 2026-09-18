@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -87,6 +87,35 @@ async def get_usage_by_model(db: AsyncSession) -> list[dict]:
             }
         )
     result.sort(key=lambda r: r["last_used_at"] or "", reverse=True)
+    return result
+
+
+async def get_usage_daily_totals(db: AsyncSession, days: int = 30) -> list[dict]:
+    """Per-day request/token/cost totals across all models, oldest first, for
+    the last `days` calendar days (UTC) — the Dashboard's "daily AI spend"
+    trend, as opposed to get_usage_daily_for_model's single-model drill-down."""
+    since = _today_start_naive_utc() - timedelta(days=days - 1)
+    day_expr = func.date(AIUsageLog.created_at)
+    rows = (
+        await db.execute(
+            select(
+                day_expr.label("day"),
+                func.count(AIUsageLog.id),
+                func.coalesce(func.sum(AIUsageLog.total_tokens), 0),
+                func.coalesce(func.sum(AIUsageLog.cost_usd), 0.0),
+            )
+            .where(AIUsageLog.created_at >= since)
+            .group_by(day_expr)
+        )
+    ).all()
+    by_day = {day: (requests, tokens, cost) for day, requests, tokens, cost in rows}
+
+    result = []
+    today = _today_start_naive_utc()
+    for offset in range(days):
+        day = (today - timedelta(days=days - 1 - offset)).strftime("%Y-%m-%d")
+        requests, tokens, cost = by_day.get(day, (0, 0, 0.0))
+        result.append({"day": day, "requests": requests, "tokens": int(tokens), "cost_usd": float(cost)})
     return result
 
 

@@ -51,6 +51,7 @@ export interface BreakdownItem {
   value: number;
   displayValue?: string;
   color: string;
+  icon?: ReactNode;
 }
 
 /** Ranked list where each row's own background is a width% bar scaled to
@@ -72,7 +73,7 @@ export function BreakdownList({ items, emptyLabel = "No data yet" }: { items: Br
           />
           <div className="relative flex items-center justify-between gap-3 px-2.5 py-1.5 text-sm">
             <span className="flex min-w-0 items-center gap-2 truncate text-slate-700 dark:text-slate-200">
-              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: item.color }} aria-hidden />
+              {item.icon ?? <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: item.color }} aria-hidden />}
               <span className="truncate">{item.label}</span>
             </span>
             <span className="shrink-0 font-medium tabular-nums text-slate-800 dark:text-slate-100">

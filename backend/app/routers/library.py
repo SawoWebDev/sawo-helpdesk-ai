@@ -49,6 +49,7 @@ from app.schemas.library import (
     SitemapDiscoverRequest,
     SitemapDiscoverResponse,
 )
+from app.services.ai_usage import FEATURE_LIBRARY_SEARCH, FEATURE_LIBRARY_SEARCH_ANSWER, feature_context
 from app.services.library_ingest import (
     process_file_source,
     process_sources_concurrently,
@@ -273,7 +274,8 @@ async def search(payload: LibrarySearchRequest, db: AsyncSession = Depends(get_d
     semantic_results: list[tuple] = []
     try:
         embedding_engine = await get_embedding_engine(db)
-        [query_vector] = await embedding_engine.embed([payload.query])
+        with feature_context(FEATURE_LIBRARY_SEARCH):
+            [query_vector] = await embedding_engine.embed([payload.query])
         semantic_results = await semantic_search_vault(db, query_vector, limit=payload.limit)
     except AIEngineError:
         pass
@@ -323,7 +325,8 @@ async def search(payload: LibrarySearchRequest, db: AsyncSession = Depends(get_d
         context = "\n\n".join(f"Topic: {entry.title}\n{entry.content}" for _result, entry in synthesis_pool)
         try:
             engine = await get_active_engine(db)
-            generated = await engine.generate(SYSTEM_PROMPT, context, payload.query)
+            with feature_context(FEATURE_LIBRARY_SEARCH_ANSWER):
+                generated = await engine.generate(SYSTEM_PROMPT, context, payload.query)
             if generated and REFUSAL_SENTINEL not in generated and await _is_grounded(engine, context, generated):
                 answer = _sanitize_text(generated)
                 seen_urls: set[str] = set()
