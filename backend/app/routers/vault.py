@@ -36,9 +36,10 @@ async def list_all(
     category_id: int | None = None,
     search: str | None = None,
     memory_enabled: bool | None = None,
+    source_type: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    items, total = await list_vault_entries(db, page, page_size, category_id, search, memory_enabled)
+    items, total = await list_vault_entries(db, page, page_size, category_id, search, memory_enabled, source_type)
     return PaginatedResponse(
         items=[VaultEntryOut.model_validate(item) for item in items],
         total=total,
@@ -131,7 +132,18 @@ async def create(payload: VaultEntryCreate, db: AsyncSession = Depends(get_db)):
         category_id=payload.category_id,
         tags=payload.tags,
         source_type="manual",
+        # Manually-added entries (General Knowledge) are meant to be usable
+        # right away, unlike Library entries which are embedded by their own
+        # ingest pipeline — so this is the only manual-create path that needs
+        # to embed inline.
+        memory_enabled=True,
     )
+    try:
+        await embed_vault_entry(db, entry)
+        await db.commit()
+        await db.refresh(entry)
+    except AIEngineError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
     return entry
 
 

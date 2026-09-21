@@ -7,6 +7,8 @@ import { CATEGORICAL, SEQUENTIAL_DARK, SEQUENTIAL_LIGHT, STATUS, pick, sourceCol
 import { BreakdownList, Card, MetricCard, RangeTabs } from "@/components/admin/analytics/StatPrimitives";
 import TrendChart from "@/components/admin/analytics/TrendChart";
 import StackedBarChart from "@/components/admin/analytics/StackedBarChart";
+import Pagination from "@/components/admin/Pagination";
+import { fmtMs, formatTime } from "@/components/admin/logs/format";
 import { ModelIcon } from "@/lib/modelProviders";
 
 interface OverviewStats {
@@ -59,11 +61,45 @@ interface ModelUsage {
   is_free: boolean;
   requests_total: number;
   tokens_total: number;
+  prompt_tokens_total: number;
+  completion_tokens_total: number;
   cost_total_usd: number;
   requests_today: number;
   tokens_today: number;
   cost_today_usd: number;
   last_used_at: string | null;
+}
+
+interface UsageCall {
+  id: number;
+  model: string;
+  is_free: boolean;
+  request_type: string;
+  feature: string | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
+  provider: string | null;
+  finish_reason: string | null;
+  latency_ms: number | null;
+  session_id: string | null;
+  created_at: string;
+}
+
+interface Paginated<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+interface OpenRouterBalance {
+  configured: boolean;
+  total_credits: number;
+  total_usage: number;
+  balance: number;
+  error: string | null;
 }
 
 interface DailyModelUsage {
@@ -127,9 +163,21 @@ export default function AnalyticsPage() {
   const [expandedModel, setExpandedModel] = useState<string | null>(null);
   const [dailyModelUsage, setDailyModelUsage] = useState<DailyModelUsage[] | null>(null);
   const [dailyModelLoading, setDailyModelLoading] = useState(false);
+  const [orBalance, setOrBalance] = useState<OpenRouterBalance | null>(null);
+
+  const [calls, setCalls] = useState<Paginated<UsageCall> | null>(null);
+  const [callsPage, setCallsPage] = useState(1);
+  const [callsModelFilter, setCallsModelFilter] = useState("");
+  const callsPageSize = 20;
 
   function loadModelUsage() {
     apiGet<ModelUsage[]>("/api/usage/models").then(setModelUsage);
+  }
+
+  function loadCalls() {
+    const params = new URLSearchParams({ page: String(callsPage), page_size: String(callsPageSize) });
+    if (callsModelFilter) params.set("model", callsModelFilter);
+    apiGet<Paginated<UsageCall>>(`/api/usage/calls?${params.toString()}`).then(setCalls);
   }
 
   async function toggleModel(model: string) {
@@ -153,10 +201,16 @@ export default function AnalyticsPage() {
     apiGet<OverviewStats>("/api/analytics/overview").then(setOverview);
     apiGet<SourceBreakdown[]>("/api/analytics/faq-sources").then(setFaqSources);
     apiGet<FeatureUsage[]>("/api/analytics/usage-by-feature").then(setFeatureUsage);
+    apiGet<OpenRouterBalance>("/api/usage/openrouter-balance").then(setOrBalance);
     loadModelUsage();
     const interval = setInterval(loadModelUsage, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    loadCalls();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callsPage, callsModelFilter]);
 
   useEffect(() => {
     setChatTrend(null);
@@ -196,7 +250,7 @@ export default function AnalyticsPage() {
       </div>
 
       {/* AI engine metrics */}
-      <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-5">
         <MetricCard
           label="Active Model"
           value={
@@ -214,6 +268,29 @@ export default function AnalyticsPage() {
         <MetricCard label="AI Cost Today" value={overview ? formatCost(overview.ai_cost_today_usd) : "..."} />
         <MetricCard label="AI Cost (30d)" value={overview ? formatCost(overview.ai_cost_30d_usd) : "..."} />
         <MetricCard label="FAQ Entries" value={overview ? overview.faq_total.toLocaleString() : "..."} subtitle={overview ? `${overview.faq_published} published` : undefined} />
+        <MetricCard
+          label="OpenRouter Balance"
+          value={
+            !orBalance
+              ? "..."
+              : !orBalance.configured
+                ? "Not set up"
+                : orBalance.error
+                  ? "Error"
+                  : formatCost(orBalance.balance)
+          }
+          subtitle={
+            !orBalance ? undefined : !orBalance.configured ? (
+              <a href="/admin/settings" className="text-sawo-dark hover:underline dark:text-sawo-light">
+                Add a management key →
+              </a>
+            ) : orBalance.error ? (
+              orBalance.error
+            ) : (
+              `${formatCost(orBalance.total_usage)} used of ${formatCost(orBalance.total_credits)}`
+            )
+          }
+        />
       </div>
 
       {/* Chat volume trend */}
@@ -428,6 +505,125 @@ export default function AnalyticsPage() {
                 )}
               </tbody>
             </table>
+          </div>
+        </Card>
+      </div>
+
+      {/* Token flow (input vs. output), account-wide by model */}
+      <div className="mt-4">
+        <Card title="Token Flow (Input vs. Output)">
+          {modelUsage && modelUsage.length > 0 ? (
+            <div className="flex flex-col gap-1.5">
+              {modelUsage.map((m) => {
+                const maxTokens = Math.max(...modelUsage.map((mm) => mm.tokens_total), 1);
+                const widthPct = Math.round((m.tokens_total / maxTokens) * 100);
+                const inPct = m.tokens_total ? Math.round((m.prompt_tokens_total / m.tokens_total) * 100) : 0;
+                return (
+                  <div key={m.model} className="flex items-center gap-2">
+                    <div className="flex w-40 shrink-0 items-center gap-1.5 truncate text-xs font-medium text-slate-600 dark:text-slate-300" title={m.model}>
+                      <ModelIcon id={m.model} size={14} />
+                      <span className="truncate">{m.model}</span>
+                    </div>
+                    <div className="h-4 flex-1 overflow-hidden rounded bg-slate-100 dark:bg-white/10">
+                      <div className="flex h-full" style={{ width: `${widthPct}%` }}>
+                        <div className="h-full bg-[#2a78d6]" style={{ width: `${inPct}%` }} />
+                        <div className="h-full bg-sawo dark:bg-sawo-dark" style={{ width: `${100 - inPct}%` }} />
+                      </div>
+                    </div>
+                    <div className="w-16 shrink-0 text-right text-xs tabular-nums text-slate-500 dark:text-slate-400">
+                      {m.tokens_total.toLocaleString()}
+                    </div>
+                  </div>
+                );
+              })}
+              <div className="mt-1 flex items-center gap-4 text-[11px] text-slate-400 dark:text-slate-500">
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-[#2a78d6]" /> Input
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-sawo dark:bg-sawo-dark" /> Output
+                </span>
+              </div>
+            </div>
+          ) : (
+            <p className="py-6 text-center text-sm text-slate-400 dark:text-slate-500">
+              {modelUsage ? "No AI usage recorded yet." : "Loading..."}
+            </p>
+          )}
+        </Card>
+      </div>
+
+      {/* Per-call detail, account-wide */}
+      <div className="mt-4">
+        <Card
+          title="Per-Call Detail"
+          action={
+            <select
+              value={callsModelFilter}
+              onChange={(e) => {
+                setCallsPage(1);
+                setCallsModelFilter(e.target.value);
+              }}
+              className="rounded border border-slate-300 px-2 py-1 text-xs dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
+            >
+              <option value="">All models</option>
+              {(modelUsage ?? []).map((m) => (
+                <option key={m.model} value={m.model}>
+                  {m.model}
+                </option>
+              ))}
+            </select>
+          }
+        >
+          <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-white/10">
+            <table className="w-full min-w-[760px] text-sm">
+              <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500 dark:bg-white/5 dark:text-slate-400">
+                <tr>
+                  <th className="px-3 py-2">Time</th>
+                  <th className="px-3 py-2">Model</th>
+                  <th className="px-3 py-2">Process</th>
+                  <th className="px-3 py-2">Provider</th>
+                  <th className="px-3 py-2 text-right">Input</th>
+                  <th className="px-3 py-2 text-right">Output</th>
+                  <th className="px-3 py-2 text-right">Total</th>
+                  <th className="px-3 py-2 text-right">Latency</th>
+                  <th className="px-3 py-2">Finish</th>
+                  <th className="px-3 py-2 text-right">Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(calls?.items ?? []).map((c) => (
+                  <tr key={c.id} className="border-t border-slate-100 dark:border-white/10">
+                    <td className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">{formatTime(c.created_at)}</td>
+                    <td className="px-3 py-2">
+                      <span className="inline-flex items-center gap-1.5 font-medium text-slate-800 dark:text-slate-100">
+                        <ModelIcon id={c.model} size={14} /> {c.model}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
+                      {c.feature ? featureLabel(c.feature) : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">{c.provider || "—"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{c.prompt_tokens.toLocaleString()}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{c.completion_tokens.toLocaleString()}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{c.total_tokens.toLocaleString()}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{fmtMs(c.latency_ms)}</td>
+                    <td className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">{c.finish_reason || "—"}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{formatCost(c.cost_usd)}</td>
+                  </tr>
+                ))}
+                {calls && calls.items.length === 0 && (
+                  <tr>
+                    <td colSpan={10} className="px-4 py-6 text-center text-slate-400 dark:text-slate-500">
+                      No AI calls recorded yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            {calls && (
+              <Pagination page={callsPage} pageSize={callsPageSize} total={calls.total} onPageChange={setCallsPage} />
+            )}
           </div>
         </Card>
       </div>

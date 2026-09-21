@@ -11,6 +11,7 @@ const OPENROUTER_KEY_MASK = "********";
 
 interface Settings {
   openrouter_api_key: string;
+  openrouter_management_api_key: string;
   openrouter_model: string;
   openrouter_embedding_model: string;
   fallback_message: string;
@@ -43,6 +44,8 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [editingKey, setEditingKey] = useState(false);
+  const [managementKeyInput, setManagementKeyInput] = useState("");
+  const [editingManagementKey, setEditingManagementKey] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -58,6 +61,7 @@ export default function SettingsPage() {
     apiGet<Settings>("/api/settings").then((s) => {
       setSettings(s);
       setEditingKey(!s.openrouter_api_key);
+      setEditingManagementKey(!s.openrouter_management_api_key);
     });
   }, []);
 
@@ -145,10 +149,15 @@ export default function SettingsPage() {
       if (editingKey && apiKeyInput.trim() && apiKeyInput !== OPENROUTER_KEY_MASK) {
         payload.openrouter_api_key = apiKeyInput.trim();
       }
+      if (editingManagementKey && managementKeyInput.trim() && managementKeyInput !== OPENROUTER_KEY_MASK) {
+        payload.openrouter_management_api_key = managementKeyInput.trim();
+      }
       const updated = await apiPost<Settings>("/api/settings", payload);
       setSettings(updated);
       setApiKeyInput("");
       setEditingKey(!updated.openrouter_api_key);
+      setManagementKeyInput("");
+      setEditingManagementKey(!updated.openrouter_management_api_key);
       setMessage("Settings saved.");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to save settings");
@@ -317,6 +326,51 @@ export default function SettingsPage() {
                 {settings.openrouter_api_key
                   ? "A key is saved (shown masked above). Click \"Change key\" to replace it."
                   : "No key saved yet — paste one to enable the AI engine."}
+              </p>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">OpenRouter Management API Key</label>
+              {editingManagementKey ? (
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={managementKeyInput}
+                    onChange={(e) => setManagementKeyInput(e.target.value)}
+                    placeholder="Paste your OpenRouter management/provisioning API key"
+                    autoComplete="off"
+                    className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
+                  />
+                  {settings.openrouter_management_api_key && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingManagementKey(false);
+                        setManagementKeyInput("");
+                      }}
+                      className="shrink-0 rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-white/15 dark:text-slate-300 dark:hover:bg-white/5"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-2 rounded border border-slate-300 bg-slate-50 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5">
+                  <span className="select-none font-mono tracking-widest text-slate-500 dark:text-slate-400">
+                    {OPENROUTER_KEY_MASK}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setEditingManagementKey(true)}
+                    className="shrink-0 text-xs font-medium text-sawo-dark hover:underline dark:text-sawo-light"
+                  >
+                    Change key
+                  </button>
+                </div>
+              )}
+              <p className="text-xs text-slate-400 dark:text-slate-500">
+                {settings.openrouter_management_api_key
+                  ? "A key is saved (shown masked above). Click \"Change key\" to replace it."
+                  : "Separate from the API key above — used only to read your OpenRouter account's credit balance for the Analytics page, not for chat/embedding calls."}
               </p>
             </div>
             <div className="flex flex-col gap-1">

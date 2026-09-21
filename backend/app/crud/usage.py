@@ -50,6 +50,8 @@ async def get_usage_by_model(db: AsyncSession) -> list[dict]:
                 AIUsageLog.is_free,
                 func.count(AIUsageLog.id),
                 func.coalesce(func.sum(AIUsageLog.total_tokens), 0),
+                func.coalesce(func.sum(AIUsageLog.prompt_tokens), 0),
+                func.coalesce(func.sum(AIUsageLog.completion_tokens), 0),
                 func.coalesce(func.sum(AIUsageLog.cost_usd), 0.0),
                 func.max(AIUsageLog.created_at),
             ).group_by(AIUsageLog.model, AIUsageLog.is_free)
@@ -71,7 +73,7 @@ async def get_usage_by_model(db: AsyncSession) -> list[dict]:
     today_by_model = {row[0]: row for row in today_rows}
 
     result = []
-    for model, is_free, requests, tokens, cost, last_used in rows:
+    for model, is_free, requests, tokens, prompt_tokens, completion_tokens, cost, last_used in rows:
         today = today_by_model.get(model)
         result.append(
             {
@@ -79,6 +81,8 @@ async def get_usage_by_model(db: AsyncSession) -> list[dict]:
                 "is_free": is_free,
                 "requests_total": requests,
                 "tokens_total": int(tokens),
+                "prompt_tokens_total": int(prompt_tokens),
+                "completion_tokens_total": int(completion_tokens),
                 "cost_total_usd": float(cost),
                 "requests_today": today[1] if today else 0,
                 "tokens_today": int(today[2]) if today else 0,
@@ -141,3 +145,25 @@ async def get_usage_daily_for_model(db: AsyncSession, model: str, days: int = 14
         {"day": day, "requests": requests, "tokens": int(tokens), "cost_usd": float(cost)}
         for day, requests, tokens, cost in rows
     ]
+
+
+async def get_usage_calls(
+    db: AsyncSession, page: int, page_size: int, model: str | None = None
+) -> tuple[list[AIUsageLog], int]:
+    """Individual AI calls, most recent first, for the Analytics "Per-call
+    detail" table — the account-wide equivalent of the Chat Logs
+    consumption view's per-session call list, paginated since this can span
+    every call ever logged rather than just one conversation."""
+    query = select(AIUsageLog)
+    count_query = select(func.count(AIUsageLog.id))
+    if model:
+        query = query.where(AIUsageLog.model == model)
+        count_query = count_query.where(AIUsageLog.model == model)
+
+    total = (await db.execute(count_query)).scalar_one()
+    rows = (
+        await db.execute(
+            query.order_by(AIUsageLog.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+        )
+    ).scalars().all()
+    return rows, total

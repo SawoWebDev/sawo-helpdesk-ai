@@ -16,8 +16,10 @@ MASK = "********"
 
 def _to_out(values: dict[str, str]) -> SettingsOut:
     api_key = values.get(keys.OPENROUTER_API_KEY, "")
+    management_key = values.get(keys.OPENROUTER_MANAGEMENT_API_KEY, "")
     return SettingsOut(
         openrouter_api_key=MASK if api_key else "",
+        openrouter_management_api_key=MASK if management_key else "",
         openrouter_model=values.get(keys.OPENROUTER_MODEL, ""),
         openrouter_embedding_model=values.get(keys.OPENROUTER_EMBEDDING_MODEL, ""),
         fallback_message=values.get(keys.FALLBACK_MESSAGE, ""),
@@ -26,6 +28,7 @@ def _to_out(values: dict[str, str]) -> SettingsOut:
         off_topic_threshold=float(values.get(keys.OFF_TOPIC_THRESHOLD, "0.4")),
         off_topic_message=values.get(keys.OFF_TOPIC_MESSAGE, ""),
         max_sitemap_urls=int(values.get(keys.MAX_SITEMAP_URLS, "10000")),
+        general_knowledge_enabled=values.get(keys.GENERAL_KNOWLEDGE_ENABLED, "true") == "true",
     )
 
 
@@ -63,11 +66,19 @@ async def update_settings(payload: SettingsUpdate, db: AsyncSession = Depends(ge
             if value is not None:
                 updates[key] = str(value)
 
+    if "general_knowledge_enabled" in payload.model_fields_set and payload.general_knowledge_enabled is not None:
+        updates[keys.GENERAL_KNOWLEDGE_ENABLED] = "true" if payload.general_knowledge_enabled else "false"
+
     # Only overwrite the API key if the admin actually typed a new (unmasked) value.
     if "openrouter_api_key" in payload.model_fields_set:
         value = payload.openrouter_api_key
         if value and value != MASK:
             updates[keys.OPENROUTER_API_KEY] = value
+
+    if "openrouter_management_api_key" in payload.model_fields_set:
+        value = payload.openrouter_management_api_key
+        if value and value != MASK:
+            updates[keys.OPENROUTER_MANAGEMENT_API_KEY] = value
 
     if updates:
         await set_settings_bulk(db, updates)

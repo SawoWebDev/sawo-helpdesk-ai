@@ -80,6 +80,34 @@ function highlightText(text: string, regex: RegExp | null): React.ReactNode {
   return parts.length ? parts : text;
 }
 
+const MARKDOWN_LINK_RE = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+
+// Chat log answers are stored verbatim from the RAG pipeline, so a Markdown
+// link like "[About Us page](https://...)" shows up as literal bracket/paren
+// text here unless we render it — this thread view predates ReactMarkdown and
+// still needs the search-match <mark> highlighting from highlightText above,
+// so we parse links out by hand instead of pulling in a full Markdown
+// renderer, applying the search highlight to both plain text and link labels.
+function renderMessageText(text: string, regex: RegExp | null, linkClassName: string): React.ReactNode {
+  const linkRe = new RegExp(MARKDOWN_LINK_RE.source, "g");
+  const nodes: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+  while ((match = linkRe.exec(text)) !== null) {
+    if (match.index > lastIndex) nodes.push(highlightText(text.slice(lastIndex, match.index), regex));
+    const [full, label, url] = match;
+    nodes.push(
+      <a key={`link-${key++}`} href={url} target="_blank" rel="noopener noreferrer" className={linkClassName}>
+        {highlightText(label, regex)}
+      </a>
+    );
+    lastIndex = match.index + full.length;
+  }
+  if (lastIndex < text.length) nodes.push(highlightText(text.slice(lastIndex), regex));
+  return nodes;
+}
+
 interface BubbleItem {
   kind: "separator" | "bubble";
   day?: string;
@@ -573,7 +601,13 @@ export default function LogsPage() {
                                 : "rounded-tr-sm bg-sawo text-white dark:bg-sawo-dark"
                             }`}
                           >
-                            {highlightText(item.text || "", searchRegex)}
+                            {renderMessageText(
+                              item.text || "",
+                              searchRegex,
+                              isUser
+                                ? "font-semibold underline underline-offset-2 text-sawo-dark dark:text-sawo-light"
+                                : "font-semibold underline underline-offset-2 text-white"
+                            )}
                           </div>
                           <p className="mt-0.5 text-[10px] text-slate-400 dark:text-slate-500">{formatTime(item.createdAt!)}</p>
                           {!isUser && hasMatch && (

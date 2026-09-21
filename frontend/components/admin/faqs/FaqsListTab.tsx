@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { apiDelete, apiGet, apiPut, downloadFile, getToken, ApiError } from "@/lib/api";
 import CategorySelect, { CategoryOption } from "@/components/admin/CategorySelect";
 import Pagination from "@/components/admin/Pagination";
+import FAQModal from "./FAQModal";
 
 interface FAQ {
   id: number;
@@ -34,6 +34,7 @@ export default function FaqsListTab() {
   const [statusFilter, setStatusFilter] = useState<"" | "published" | "draft">("");
   const [importSummary, setImportSummary] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [modal, setModal] = useState<{ faqId?: number } | null>(null);
   const pageSize = 20;
 
   async function load() {
@@ -65,6 +66,11 @@ export default function FaqsListTab() {
     const nextStatus = faq.status === "published" ? "draft" : "published";
     await apiPut(`/api/faqs/${faq.id}`, { status: nextStatus });
     await load();
+  }
+
+  function handleModalSaved() {
+    setModal(null);
+    load();
   }
 
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
@@ -138,9 +144,13 @@ export default function FaqsListTab() {
             <input type="file" accept=".xlsx" onChange={handleImport} className="hidden" />
           </label>
         </div>
-        <Link href="/admin/faqs/new" className="rounded bg-sawo px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sawo-dark dark:bg-sawo-dark dark:hover:bg-sawo-darker">
+        <button
+          type="button"
+          onClick={() => setModal({})}
+          className="rounded bg-sawo px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sawo-dark dark:bg-sawo-dark dark:hover:bg-sawo-darker"
+        >
           New FAQ
-        </Link>
+        </button>
       </div>
 
       {importSummary && (
@@ -216,9 +226,9 @@ export default function FaqsListTab() {
                   <button onClick={() => handleToggleStatus(faq)} className="mr-3 text-sawo-dark dark:text-sawo-light">
                     {faq.status === "published" ? "Unpublish" : "Publish"}
                   </button>
-                  <Link href={`/admin/faqs/${faq.id}`} className="mr-3 text-sawo-dark dark:text-sawo-light">
+                  <button onClick={() => setModal({ faqId: faq.id })} className="mr-3 text-sawo-dark dark:text-sawo-light">
                     Edit
-                  </Link>
+                  </button>
                   <button onClick={() => handleDelete(faq.id)} className="text-red-600 dark:text-red-400">
                     Delete
                   </button>
@@ -236,6 +246,8 @@ export default function FaqsListTab() {
         </table>
         <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
       </div>
+
+      {modal && <FAQModal faqId={modal.faqId} onClose={() => setModal(null)} onSaved={handleModalSaved} />}
     </div>
   );
 }

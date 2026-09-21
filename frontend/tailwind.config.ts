@@ -66,7 +66,7 @@ const config: Config = {
         "streak-drift": "streak-drift 45s linear infinite",      },
     },
   },
-  plugins: [],
+  plugins: [require("@tailwindcss/typography")],
 };
 
 export default config;

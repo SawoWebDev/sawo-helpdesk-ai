@@ -1,6 +1,7 @@
 import {
   BarChart3,
   BookOpen,
+  Brain,
   Grid2x2,
   HelpCircle,
   LayoutDashboard,
@@ -28,6 +29,10 @@ export function LibraryIcon() {
 
 export function FaqIcon() {
   return <MessageCircleQuestion size={SIZE} strokeWidth={STROKE} className="shrink-0" />;
+}
+
+export function GeneralKnowledgeIcon() {
+  return <Brain size={SIZE} strokeWidth={STROKE} className="shrink-0" />;
 }
 
 export function CategoriesIcon() {

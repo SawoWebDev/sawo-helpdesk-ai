@@ -62,13 +62,16 @@ export default function ImageUploader({
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap gap-2">
         {urls.map((url) => (
-          <div key={url} className="relative">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={url} alt="" className="h-16 w-16 rounded border border-slate-200 object-cover" />
+          <div key={url} className="relative h-16 w-16">
+            <div className="h-full w-full overflow-hidden rounded border border-slate-200 bg-slate-50">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={url} alt="" className="h-full w-full object-contain" />
+            </div>
             <button
               type="button"
               onClick={() => removeUrl(url)}
-              className="absolute -right-1 -top-1 rounded-full bg-red-500 px-1 text-xs text-white"
+              aria-label="Remove image"
+              className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] leading-none text-white"
             >
               x
             </button>

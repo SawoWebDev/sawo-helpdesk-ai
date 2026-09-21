@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     # that it's effectively free-tier pricing with reliability attached.
     openrouter_model: str = "mistralai/mistral-nemo"
     openrouter_embedding_model: str = "openai/text-embedding-3-small"
+    # A separate account-level key (OpenRouter calls these "Provisioning" or
+    # "Management" keys) used only to read the account's credit balance via
+    # /api/v1/credits — distinct from openrouter_api_key above, which is the
+    # inference key used for actual chat/embedding calls.
+    openrouter_management_api_key: str = ""
 
     default_fallback_message: str = (
         "Thanks for your question — we've taken note of it and will follow up "

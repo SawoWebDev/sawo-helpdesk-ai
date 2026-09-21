@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.base import AIEngineError
@@ -14,6 +14,7 @@ from app.rag.reindex import embed_entry
 from app.schemas.common import PaginatedResponse
 from app.schemas.faq import FAQCreate, FAQOut, FAQUpdate
 from app.services.ai_usage import FEATURE_FAQ_DEDUP, feature_context
+from app.services.uploads import delete_unreferenced_uploads
 
 router = APIRouter(prefix="/api/faqs", tags=["faqs"], dependencies=[Depends(require_agent_or_admin)])
 
@@ -84,9 +85,15 @@ async def clear_all_faqs(
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_admin),
 ):
+    all_image_urls = [
+        url
+        for (image_urls,) in (await db.execute(select(FAQEntry.image_urls))).all()
+        for url in (image_urls or [])
+    ]
     await db.execute(text(f"DELETE FROM {FAQ_VEC_TABLE}"))
     await db.execute(FAQEntry.__table__.delete())
     await db.commit()
+    await delete_unreferenced_uploads(db, all_image_urls)
 
 
 @router.put("/{faq_id}", response_model=FAQOut)
@@ -111,6 +118,7 @@ async def update(faq_id: int, payload: FAQUpdate, db: AsyncSession = Depends(get
                 detail=f'A FAQ for this question already exists: "{duplicate.question}"',
             )
 
+    old_image_urls = list(entry.image_urls or [])
     changed_content = False
     status_changed = False
     for field_name in ("question", "answer", "category_id", "image_urls", "reference_urls", "status"):
@@ -130,6 +138,11 @@ async def update(faq_id: int, payload: FAQUpdate, db: AsyncSession = Depends(get
 
     await db.commit()
     await db.refresh(entry)
+
+    if "image_urls" in payload.model_fields_set:
+        removed = set(old_image_urls) - set(entry.image_urls or [])
+        await delete_unreferenced_uploads(db, removed)
+
     return entry
 
 

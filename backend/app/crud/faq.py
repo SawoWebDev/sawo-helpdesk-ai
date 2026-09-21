@@ -8,6 +8,7 @@ from app.ai.factory import get_embedding_engine
 from app.db.vec_store import FAQ_VEC_TABLE, delete_embedding, knn_search
 from app.models.faq import FAQEntry
 from app.services.ai_usage import FEATURE_FAQ_DEDUP, feature_context
+from app.services.uploads import delete_unreferenced_uploads
 
 # How close two questions need to be, by their own question-only embeddings,
 # to treat them as the same underlying question (a rephrasing, not just a
@@ -179,6 +180,10 @@ async def create_faq(
 
 
 async def delete_faq(db: AsyncSession, entry: FAQEntry) -> None:
+    image_urls = list(entry.image_urls or [])
     await delete_embedding(db, FAQ_VEC_TABLE, entry.id)
     await db.delete(entry)
     await db.commit()
+    # After the entry's row is actually gone, so the "still referenced by any
+    # FAQ" check below doesn't see this entry's own soon-to-be-deleted row.
+    await delete_unreferenced_uploads(db, image_urls)

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Check, Copy } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { markdownLinkComponent } from "@/lib/markdownLink";
 import BotAvatar from "./BotAvatar";
 
 export interface ChatMessage {
@@ -49,12 +50,18 @@ export default function MessageBubble({ message, onCopy }: { message: ChatMessag
                 : "glass glass-soft glass-edge glass-edge-soft relative rounded-tl-[4px] border border-transparent bg-white font-medium text-[#2a2420] dark:text-slate-100"
           }`}
         >
-          <div
-            className={`prose prose-sm max-w-none prose-p:my-1 prose-a:font-semibold prose-a:no-underline prose-a:underline-offset-2 hover:prose-a:underline ${
-              isUser ? "prose-invert prose-a:text-white" : "prose-a:text-sawo dark:prose-invert dark:prose-a:text-sawo-light"
-            }`}
-          >
-            <ReactMarkdown>{message.text}</ReactMarkdown>
+          <div className="prose prose-sm max-w-none text-inherit [&_*:not(a)]:text-inherit prose-p:my-1">
+            <ReactMarkdown
+              components={{
+                a: markdownLinkComponent(
+                  `font-semibold underline underline-offset-2 ${
+                    isUser ? "text-white" : "text-sawo-dark dark:text-sawo-light"
+                  }`
+                ),
+              }}
+            >
+              {message.text}
+            </ReactMarkdown>
           </div>
 
           {message.imageUrls && message.imageUrls.length > 0 && (
@@ -65,7 +72,7 @@ export default function MessageBubble({ message, onCopy }: { message: ChatMessag
                   key={url}
                   src={url}
                   alt="Reference"
-                  className="max-h-40 rounded-lg border border-slate-200 object-cover dark:border-white/15"
+                  className="max-h-40 max-w-full rounded-lg border border-slate-200 object-contain dark:border-white/15"
                 />
               ))}
             </div>

@@ -215,6 +215,7 @@ async def _answer_question_impl(
     top_k = int(settings_values[keys.TOP_K])
     off_topic_threshold = float(settings_values[keys.OFF_TOPIC_THRESHOLD])
     off_topic_message = settings_values[keys.OFF_TOPIC_MESSAGE]
+    general_knowledge_enabled = settings_values[keys.GENERAL_KNOWLEDGE_ENABLED] == "true"
 
     engine = await get_active_engine(db)
 
@@ -286,7 +287,10 @@ async def _answer_question_impl(
     # "is this actually useful" than vector distance alone.
     candidate_k = max(top_k * 3, top_k + 5)
     faq_hits = await knn_search(db, FAQ_VEC_TABLE, retrieval_vector, candidate_k)
-    vault_hits = await knn_search(db, VAULT_VEC_TABLE, retrieval_vector, candidate_k)
+    # Skipping the vault query entirely (rather than filtering its results
+    # after the fact) when General Knowledge is turned off, since there's no
+    # reason to pay for the search at all when its results would be discarded.
+    vault_hits = await knn_search(db, VAULT_VEC_TABLE, retrieval_vector, candidate_k) if general_knowledge_enabled else []
 
     faq_ids = [entry_id for entry_id, _ in faq_hits]
     faq_by_id = {
@@ -352,13 +356,16 @@ async def _answer_question_impl(
     matched_faq_ids: list[int] = []
     matched_vault_ids: list[int] = []
     image_urls: list[str] = []
+    image_similarity: dict[str, float] = {}
     reference_urls: list[str] = []
     url_similarity: dict[str, float] = {}
     for (kind, entry), similarity in rows:
         if kind == "faq":
             context_parts.append(f"Q: {entry.question}\nA: {entry.answer}")
             matched_faq_ids.append(entry.id)
-            image_urls.extend(entry.image_urls or [])
+            for img in entry.image_urls or []:
+                image_urls.append(img)
+                image_similarity[img] = max(image_similarity.get(img, 0.0), similarity)
             for url in entry.reference_urls or []:
                 reference_urls.append(url)
                 url_similarity[url] = max(url_similarity.get(url, 0.0), similarity)
@@ -426,6 +433,20 @@ async def _answer_question_impl(
         ]
     else:
         reference_urls = []
+
+    # Same "only the exact top-scoring source" rule as reference_urls above,
+    # applied to images: an image attached to one FAQ entry shouldn't ride
+    # along on an answer that only used a different, lower-ranked entry from
+    # the same context pool just because both cleared the retrieval bar.
+    unique_images = list(dict.fromkeys(image_urls))
+    top_image_similarity = max((image_similarity.get(img, 0.0) for img in unique_images), default=0.0)
+    if top_image_similarity >= threshold:
+        image_urls = [
+            img for img in unique_images
+            if image_similarity.get(img, 0.0) >= top_image_similarity - LINK_SIMILARITY_EPSILON
+        ]
+    else:
+        image_urls = []
 
     # best_similarity no longer gates whether we answer (the LLM already
     # judged the retrieved context sufficient), but it's still useful as a

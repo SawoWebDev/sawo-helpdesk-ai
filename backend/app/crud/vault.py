@@ -17,6 +17,7 @@ async def list_vault_entries(
     category_id: int | None = None,
     search: str | None = None,
     memory_enabled: bool | None = None,
+    source_type: str | None = None,
 ) -> tuple[list[VaultEntry], int]:
     stmt = select(VaultEntry)
     count_stmt = select(func.count(VaultEntry.id))
@@ -28,6 +29,10 @@ async def list_vault_entries(
     if memory_enabled is not None:
         stmt = stmt.where(VaultEntry.memory_enabled == memory_enabled)
         count_stmt = count_stmt.where(VaultEntry.memory_enabled == memory_enabled)
+
+    if source_type is not None:
+        stmt = stmt.where(VaultEntry.source_type == source_type)
+        count_stmt = count_stmt.where(VaultEntry.source_type == source_type)
 
     if search:
         like = f"%{search}%"
@@ -57,6 +62,7 @@ async def create_vault_entry(
     source_type: str = "manual",
     source_id: int | None = None,
     source_url: str | None = None,
+    memory_enabled: bool = False,
 ) -> VaultEntry:
     entry = VaultEntry(
         title=title,
@@ -66,6 +72,7 @@ async def create_vault_entry(
         source_type=source_type,
         source_id=source_id,
         source_url=source_url,
+        memory_enabled=memory_enabled,
     )
     db.add(entry)
     await db.commit()

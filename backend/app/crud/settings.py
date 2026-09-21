@@ -7,6 +7,7 @@ from app.models.setting import Setting
 
 DEFAULTS: dict[str, str] = {
     keys.OPENROUTER_API_KEY: env_settings.openrouter_api_key,
+    keys.OPENROUTER_MANAGEMENT_API_KEY: env_settings.openrouter_management_api_key,
     keys.OPENROUTER_MODEL: env_settings.openrouter_model,
     keys.OPENROUTER_EMBEDDING_MODEL: env_settings.openrouter_embedding_model,
     keys.FALLBACK_MESSAGE: env_settings.default_fallback_message,
@@ -15,6 +16,7 @@ DEFAULTS: dict[str, str] = {
     keys.OFF_TOPIC_THRESHOLD: str(env_settings.default_off_topic_threshold),
     keys.OFF_TOPIC_MESSAGE: env_settings.default_off_topic_message,
     keys.MAX_SITEMAP_URLS: str(env_settings.default_max_sitemap_urls),
+    keys.GENERAL_KNOWLEDGE_ENABLED: "true",
 }
 
 

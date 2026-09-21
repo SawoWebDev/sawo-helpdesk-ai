@@ -12,8 +12,8 @@ from app.ai.base import AIEngineError
 from app.db.base import AsyncSessionLocal
 from app.models.faq import FAQEntry
 from app.models.vault_entry import VaultEntry
-from app.rag.reindex import reindex_all
-from app.rag.vault_reindex import reindex_all_vault
+from app.rag.reindex import reindex_stale_faq
+from app.rag.vault_reindex import reindex_stale_vault
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +38,10 @@ async def reindex_stale() -> None:
 
         try:
             if has_stale_faq:
-                count = await reindex_all(db)
+                count = await reindex_stale_faq(db)
                 logger.info("Re-embedded %d FAQ entries", count)
             if has_stale_vault:
-                count = await reindex_all_vault(db)
+                count = await reindex_stale_vault(db)
                 logger.info("Re-embedded %d vault entries", count)
         except AIEngineError as exc:
             logger.warning("Stale-embedding reindex failed, will retry next boot: %s", exc)

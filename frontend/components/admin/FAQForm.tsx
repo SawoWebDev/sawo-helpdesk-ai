@@ -1,10 +1,11 @@
 "use client";
 
-import { FormEvent, KeyboardEvent, useEffect, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiGet, apiPost, apiPut, ApiError } from "@/lib/api";
 import CategorySelect, { CategoryOption } from "./CategorySelect";
 import ImageUploader from "./ImageUploader";
+import RichAnswerEditor, { RichAnswerEditorHandle } from "./RichAnswerEditor";
 
 export interface FAQFormValues {
   question: string;
@@ -17,14 +18,18 @@ export interface FAQFormValues {
 export default function FAQForm({
   faqId,
   initial,
+  onSaved,
+  onCancel,
 }: {
   faqId?: number;
   initial?: FAQFormValues;
+  onSaved?: () => void;
+  onCancel?: () => void;
 }) {
   const router = useRouter();
+  const answerEditorRef = useRef<RichAnswerEditorHandle>(null);
   const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [question, setQuestion] = useState(initial?.question ?? "");
-  const [answer, setAnswer] = useState(initial?.answer ?? "");
   const [categoryId, setCategoryId] = useState<number | null>(initial?.category_id ?? null);
   const [imageUrls, setImageUrls] = useState<string[]>(initial?.image_urls ?? []);
   const [referenceUrls, setReferenceUrls] = useState<string[]>(initial?.reference_urls ?? []);
@@ -36,8 +41,18 @@ export default function FAQForm({
     apiGet<CategoryOption[]>("/api/categories").then(setCategories);
   }, []);
 
+  function goBack() {
+    if (onCancel) onCancel();
+    else router.push("/admin/faqs");
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    const answer = answerEditorRef.current?.getMarkdown() ?? "";
+    if (!answer) {
+      setError("Answer is required");
+      return;
+    }
     setSubmitting(true);
     setError(null);
     const payload = {
@@ -53,7 +68,8 @@ export default function FAQForm({
       } else {
         await apiPost("/api/faqs", payload);
       }
-      router.push("/admin/faqs");
+      if (onSaved) onSaved();
+      else router.push("/admin/faqs");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to save FAQ");
     } finally {
@@ -79,50 +95,52 @@ export default function FAQForm({
   return (
     <form onSubmit={handleSubmit} className="flex max-w-2xl flex-col gap-4">
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-slate-700">Question</label>
+        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Question</label>
         <textarea
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
           required
           rows={2}
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
+          className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
         />
       </div>
 
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-slate-700">Answer</label>
-        <textarea
-          value={answer}
-          onChange={(e) => setAnswer(e.target.value)}
-          required
-          rows={6}
-          className="rounded border border-slate-300 px-3 py-2 text-sm"
-        />
-        <p className="text-xs text-slate-400">Markdown supported (bold, links, lists, etc).</p>
+        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Answer</label>
+        <RichAnswerEditor ref={answerEditorRef} initialMarkdown={initial?.answer ?? ""} />
+        <p className="text-xs text-slate-400 dark:text-slate-500">
+          Select text and use the toolbar to bold it or turn it into a link — linked text shows as bold, not as a
+          raw URL. Select linked text and click the link button again to view or edit its URL.
+        </p>
       </div>
 
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-slate-700">Category</label>
+        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Category</label>
         <CategorySelect categories={categories} value={categoryId} onChange={setCategoryId} />
       </div>
 
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-slate-700">Images</label>
+        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Images</label>
         <ImageUploader urls={imageUrls} onChange={setImageUrls} />
       </div>
 
       <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-slate-700">Reference URLs</label>
+        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Reference URLs</label>
         <div className="flex flex-col gap-1">
           {referenceUrls.map((url) => (
             <div key={url} className="flex items-center gap-2 text-sm">
-              <a href={url} target="_blank" rel="noopener noreferrer" className="flex-1 truncate text-blue-600 underline">
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 truncate text-sawo-dark underline dark:text-sawo-light"
+              >
                 {url}
               </a>
               <button
                 type="button"
                 onClick={() => setReferenceUrls(referenceUrls.filter((u) => u !== url))}
-                className="text-red-600"
+                className="text-red-600 dark:text-red-400"
               >
                 Remove
               </button>
@@ -135,28 +153,32 @@ export default function FAQForm({
             onChange={(e) => setRefInput(e.target.value)}
             onKeyDown={handleRefInputKeyDown}
             placeholder="https://..."
-            className="flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
+            className="flex-1 rounded border border-slate-300 px-2 py-1 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
           />
-          <button type="button" onClick={addReferenceUrl} className="rounded border border-slate-300 px-3 py-1 text-sm">
+          <button
+            type="button"
+            onClick={addReferenceUrl}
+            className="rounded border border-slate-300 px-3 py-1 text-sm dark:border-white/15 dark:text-slate-300 dark:hover:bg-white/5"
+          >
             Add
           </button>
         </div>
       </div>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
       <div className="flex gap-2">
         <button
           type="submit"
           disabled={submitting}
-          className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="rounded bg-sawo px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sawo-dark disabled:opacity-50 dark:bg-sawo-dark dark:hover:bg-sawo-darker"
         >
           {submitting ? "Saving..." : "Save"}
         </button>
         <button
           type="button"
-          onClick={() => router.push("/admin/faqs")}
-          className="rounded border border-slate-300 px-4 py-2 text-sm"
+          onClick={goBack}
+          className="rounded border border-slate-300 px-4 py-2 text-sm dark:border-white/15 dark:text-slate-300 dark:hover:bg-white/5"
         >
           Cancel
         </button>

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class UsageSummary(BaseModel):
@@ -17,6 +17,8 @@ class ModelUsageSummary(BaseModel):
     is_free: bool
     requests_total: int
     tokens_total: int
+    prompt_tokens_total: int
+    completion_tokens_total: int
     cost_total_usd: float
     requests_today: int
     tokens_today: int
@@ -29,3 +31,30 @@ class DailyUsage(BaseModel):
     requests: int
     tokens: int
     cost_usd: float
+
+
+class UsageCallOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    model: str
+    is_free: bool
+    request_type: str
+    feature: str | None
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    cost_usd: float
+    provider: str | None
+    finish_reason: str | None
+    latency_ms: int | None
+    session_id: str | None
+    created_at: datetime
+
+
+class OpenRouterBalance(BaseModel):
+    configured: bool
+    total_credits: float
+    total_usage: float
+    balance: float
+    error: str | None
