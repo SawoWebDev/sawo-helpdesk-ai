@@ -10,6 +10,20 @@ import StackedBarChart from "@/components/admin/analytics/StackedBarChart";
 import Pagination from "@/components/admin/Pagination";
 import { fmtMs, formatTime } from "@/components/admin/logs/format";
 import { ModelIcon } from "@/lib/modelProviders";
+import PageHeader from "@/components/admin/PageHeader";
+import {
+  Activity,
+  BadgeCheck,
+  BookOpen,
+  Bot,
+  CircleHelp,
+  Clock3,
+  Gauge,
+  MessagesSquare,
+  Sparkles,
+  Users,
+  WalletCards,
+} from "lucide-react";
 
 interface OverviewStats {
   chats_today: number;
@@ -17,6 +31,13 @@ interface OverviewStats {
   chats_30d: number;
   unique_sessions_7d: number;
   answered_rate_7d: number;
+  chats_7d_delta_pct: number | null;
+  answered_rate_delta_7d_points: number | null;
+  ai_cost_7d_usd: number;
+  ai_cost_7d_delta_pct: number | null;
+  avg_latency_7d_ms: number | null;
+  p95_latency_7d_ms: number | null;
+  cost_per_answer_7d_usd: number | null;
   unanswered_pending: number;
   faq_total: number;
   faq_published: number;
@@ -116,11 +137,26 @@ interface FeatureUsage {
   cost_total_usd: number;
 }
 
-function formatCost(usd: number): string {
+function formatCost(usd: number | null | undefined): string {
+  if (usd === null || usd === undefined) return "N/A";
   if (usd === 0) return "$0.00";
   if (usd < 0.0001) return "<$0.0001";
   if (usd < 0.01) return `$${usd.toFixed(4)}`;
   return `$${usd.toFixed(2)}`;
+}
+
+function formatDelta(value: number | null | undefined, suffix = "%"): string {
+  if (value === null || value === undefined) return "No prior period";
+  if (value === 0) return `0${suffix} vs prior 7d`;
+  return `${value > 0 ? "+" : ""}${value}${suffix} vs prior 7d`;
+}
+
+function deltaClass(value: number | null | undefined, invert = false): string {
+  if (value === null || value === undefined || value === 0) return "bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300";
+  const positive = invert ? value < 0 : value > 0;
+  return positive
+    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
+    : "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300";
 }
 
 const FAQ_SOURCE_ORDER = ["manual", "chat_log", "chat_auto", "import"];
@@ -229,28 +265,66 @@ export default function AnalyticsPage() {
   );
 
   const sequential = isDark ? SEQUENTIAL_DARK : SEQUENTIAL_LIGHT;
+  const answerHealth = overview?.answered_rate_7d ?? 0;
+  const hasAttention = (overview?.unanswered_pending ?? 0) > 0;
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Analytics</h1>
-        <RangeTabs value={days} onChange={setDays} />
+      <PageHeader
+        icon="fa-solid fa-chart-line"
+        title="Analytics"
+        description="Chat volume, answer rate, and AI usage over time."
+        actions={<RangeTabs value={days} onChange={setDays} />}
+      />
+
+      <div className="mb-5 grid grid-cols-1 gap-3 lg:grid-cols-[1.35fr_1fr_1fr]">
+        <div className="relative overflow-hidden rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 dark:border-blue-400/20 dark:bg-blue-500/10">
+          <div className="absolute right-4 top-3 text-blue-200 dark:text-blue-300/15" aria-hidden>
+            <Sparkles size={46} strokeWidth={1.4} />
+          </div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">Analytics snapshot</p>
+          <p className="mt-1 pr-12 text-sm font-medium text-slate-800 dark:text-slate-100">
+            {overview ? `${overview.chats_today.toLocaleString()} chats today across ${overview.unique_sessions_7d.toLocaleString()} active 7-day sessions.` : "Preparing your latest conversation snapshot..."}
+          </p>
+        </div>
+        <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-400/20 dark:bg-emerald-500/10">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"><BadgeCheck size={19} /></span>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Answer health</p>
+            <p className="mt-0.5 text-sm font-medium text-slate-800 dark:text-slate-100">{overview ? `${answerHealth}% answered in the last 7 days` : "Loading answer quality..."}</p>
+          </div>
+        </div>
+        <div className={`flex items-center gap-3 rounded-lg border px-4 py-3 ${hasAttention ? "border-amber-200 bg-amber-50 dark:border-amber-400/20 dark:bg-amber-500/10" : "border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-white/5"}`}>
+          <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${hasAttention ? "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300" : "bg-slate-200 text-slate-600 dark:bg-white/10 dark:text-slate-300"}`}><CircleHelp size={19} /></span>
+          <div className="min-w-0">
+            <p className={`text-xs font-semibold uppercase tracking-wide ${hasAttention ? "text-amber-700 dark:text-amber-300" : "text-slate-600 dark:text-slate-300"}`}>Needs review</p>
+            <p className="mt-0.5 text-sm font-medium text-slate-800 dark:text-slate-100">{overview ? `${overview.unanswered_pending.toLocaleString()} unanswered questions pending` : "Checking your queue..."}</p>
+          </div>
+        </div>
       </div>
 
       {/* Core metrics */}
       <div className="mb-4 grid grid-cols-2 gap-4 md:grid-cols-4">
-        <MetricCard label="Chats (7d)" value={overview ? overview.chats_7d.toLocaleString() : "..."} subtitle={overview ? `${overview.chats_today} today` : undefined} />
+        <MetricCard
+          label="Chats (7d)"
+          value={overview ? overview.chats_7d.toLocaleString() : "..."}
+          icon={<MessagesSquare size={17} />}
+          tone="blue"
+          subtitle={overview ? `${overview.chats_today} today · ${formatDelta(overview.chats_7d_delta_pct)}` : undefined}
+        />
         <MetricCard
           label="Answered Rate (7d)"
           value={overview ? `${overview.answered_rate_7d}%` : "..."}
-          subtitle="Matched real FAQ/Library content"
+          icon={<BadgeCheck size={17} />}
+          tone="emerald"
+          subtitle={overview ? `${formatDelta(overview.answered_rate_delta_7d_points, " pts")} · matched real content` : "Matched real FAQ/Library content"}
         />
-        <MetricCard label="Unanswered Pending" value={overview ? overview.unanswered_pending.toLocaleString() : "..."} subtitle="Awaiting agent review" />
-        <MetricCard label="Unique Sessions (7d)" value={overview ? overview.unique_sessions_7d.toLocaleString() : "..."} />
+        <MetricCard label="Unanswered Pending" value={overview ? overview.unanswered_pending.toLocaleString() : "..."} subtitle="Awaiting agent review" icon={<CircleHelp size={17} />} tone="amber" />
+        <MetricCard label="Unique Sessions (7d)" value={overview ? overview.unique_sessions_7d.toLocaleString() : "..."} subtitle="Distinct visitors" icon={<Users size={17} />} tone="violet" />
       </div>
 
       {/* AI engine metrics */}
-      <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-5">
+      <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
         <MetricCard
           label="Active Model"
           value={
@@ -264,10 +338,32 @@ export default function AnalyticsPage() {
             )
           }
           subtitle={overview ? (overview.active_model_is_free ? "Free tier" : "Paid") : undefined}
+          icon={<Bot size={17} />}
+          tone="violet"
         />
-        <MetricCard label="AI Cost Today" value={overview ? formatCost(overview.ai_cost_today_usd) : "..."} />
-        <MetricCard label="AI Cost (30d)" value={overview ? formatCost(overview.ai_cost_30d_usd) : "..."} />
-        <MetricCard label="FAQ Entries" value={overview ? overview.faq_total.toLocaleString() : "..."} subtitle={overview ? `${overview.faq_published} published` : undefined} />
+        <MetricCard label="AI Cost Today" value={overview ? formatCost(overview.ai_cost_today_usd) : "..."} subtitle="Live spend" icon={<WalletCards size={17} />} tone="blue" />
+        <MetricCard
+          label="AI Cost (7d)"
+          value={overview ? formatCost(overview.ai_cost_7d_usd) : "..."}
+          subtitle={overview ? <span className={`rounded px-1.5 py-0.5 font-medium ${deltaClass(overview.ai_cost_7d_delta_pct, true)}`}>{formatDelta(overview.ai_cost_7d_delta_pct)}</span> : undefined}
+          icon={<Activity size={17} />}
+          tone="rose"
+        />
+        <MetricCard
+          label="Cost / Answer"
+          value={overview && overview.cost_per_answer_7d_usd !== null ? formatCost(overview.cost_per_answer_7d_usd) : overview ? "N/A" : "..."}
+          subtitle="Last 7 days"
+          icon={<WalletCards size={17} />}
+          tone="emerald"
+        />
+        <MetricCard
+          label="AI Latency P95"
+          value={overview && overview.p95_latency_7d_ms !== null ? fmtMs(overview.p95_latency_7d_ms) : overview ? "N/A" : "..."}
+          subtitle={overview && overview.avg_latency_7d_ms !== null ? `${fmtMs(overview.avg_latency_7d_ms)} average` : "Last 7 days"}
+          icon={<Clock3 size={17} />}
+          tone="amber"
+        />
+        <MetricCard label="FAQ Entries" value={overview ? overview.faq_total.toLocaleString() : "..."} subtitle={overview ? `${overview.faq_published} published` : undefined} icon={<BookOpen size={17} />} tone="brand" />
         <MetricCard
           label="OpenRouter Balance"
           value={
@@ -290,6 +386,8 @@ export default function AnalyticsPage() {
               `${formatCost(orBalance.total_usage)} used of ${formatCost(orBalance.total_credits)}`
             )
           }
+          icon={<Gauge size={17} />}
+          tone="blue"
         />
       </div>
 

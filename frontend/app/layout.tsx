@@ -4,7 +4,11 @@ import "./globals.css";
 
 const montserrat = Montserrat({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  // 300/800 added alongside the existing weights so the admin CMS chrome
+  // (frontend/app/admin/**) can use the reference design system's full
+  // weight range (300;400;500;600;700;800) without a synthetic/fallback
+  // weight — see D:\NEW_SITES\REACT_SITE\SAWO_CMS_DESIGN\01_DESIGN_TOKENS\TYPOGRAPHY.md.
+  weight: ["300", "400", "500", "600", "700", "800"],
   variable: "--font-montserrat",
 });
 

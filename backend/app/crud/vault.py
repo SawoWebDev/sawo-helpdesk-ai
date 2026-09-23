@@ -53,6 +53,15 @@ async def list_vault_entries_all(db: AsyncSession) -> list[VaultEntry]:
     return list(result.scalars().all())
 
 
+async def list_vault_entries_by_category_ids(db: AsyncSession, category_ids: set[int]) -> list[VaultEntry]:
+    if not category_ids:
+        return []
+    result = await db.execute(
+        select(VaultEntry).where(VaultEntry.category_id.in_(category_ids)).order_by(VaultEntry.category_id, VaultEntry.title)
+    )
+    return list(result.scalars().all())
+
+
 async def create_vault_entry(
     db: AsyncSession,
     title: str,

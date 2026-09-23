@@ -13,6 +13,7 @@ class SettingsOut(BaseModel):
     off_topic_message: str
     max_sitemap_urls: int
     general_knowledge_enabled: bool
+    chatbot_kb_enabled: bool
 
 
 class SettingsUpdate(BaseModel):
@@ -27,3 +28,4 @@ class SettingsUpdate(BaseModel):
     off_topic_message: str | None = None
     max_sitemap_urls: int | None = Field(default=None, ge=10, le=100_000_000)
     general_knowledge_enabled: bool | None = None
+    chatbot_kb_enabled: bool | None = None

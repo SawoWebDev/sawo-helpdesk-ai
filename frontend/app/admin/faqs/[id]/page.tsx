@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { apiGet } from "@/lib/api";
 import FAQForm, { FAQFormValues } from "@/components/admin/FAQForm";
+import PageHeader from "@/components/admin/PageHeader";
 
 export default function EditFAQPage() {
   const params = useParams<{ id: string }>();
@@ -16,7 +17,7 @@ export default function EditFAQPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-xl font-semibold text-slate-800 dark:text-slate-100">Edit FAQ Entry</h1>
+      <PageHeader icon="fa-solid fa-circle-question" title="Edit FAQ Entry" />
       {initial ? <FAQForm faqId={faqId} initial={initial} /> : <p className="text-slate-400 dark:text-slate-500">Loading...</p>}
     </div>
   );

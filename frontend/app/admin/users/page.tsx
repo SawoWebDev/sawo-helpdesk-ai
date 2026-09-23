@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { apiDelete, apiGet, apiPost, apiPut, ApiError } from "@/lib/api";
 import { useCurrentUser } from "@/lib/useCurrentUser";
+import PageHeader from "@/components/admin/PageHeader";
 
 interface User {
   id: number;
@@ -68,7 +69,11 @@ export default function UsersPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-xl font-semibold text-slate-800 dark:text-slate-100">User Management</h1>
+      <PageHeader
+        icon="fa-solid fa-users"
+        title="User Management"
+        description="Create and manage admin and agent accounts."
+      />
 
       <form onSubmit={handleCreate} className="mb-6 flex flex-wrap items-end gap-2 rounded-lg border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-night-surface">
         <div className="flex flex-col gap-1">

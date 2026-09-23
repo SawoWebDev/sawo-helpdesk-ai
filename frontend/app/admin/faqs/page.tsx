@@ -5,6 +5,7 @@ import { apiGet } from "@/lib/api";
 import FaqsListTab from "@/components/admin/faqs/FaqsListTab";
 import UnansweredTab from "@/components/admin/faqs/UnansweredTab";
 import CategoriesTab from "@/components/admin/faqs/CategoriesTab";
+import PageHeader from "@/components/admin/PageHeader";
 
 type TabKey = "faqs" | "unanswered" | "categories";
 
@@ -34,9 +35,11 @@ export default function FaqsPage() {
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">FAQ Knowledge Base</h1>
-      </div>
+      <PageHeader
+        icon="fa-solid fa-circle-question"
+        title="FAQ Knowledge Base"
+        description="Manage FAQ entries and review unanswered chat questions."
+      />
 
       <div className="mb-6 flex items-center gap-1 border-b border-slate-200 dark:border-white/10">
         {TABS.map((t) => (

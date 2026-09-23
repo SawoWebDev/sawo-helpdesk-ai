@@ -9,6 +9,7 @@ OFF_TOPIC_THRESHOLD = "off_topic_threshold"
 OFF_TOPIC_MESSAGE = "off_topic_message"
 MAX_SITEMAP_URLS = "max_sitemap_urls"
 GENERAL_KNOWLEDGE_ENABLED = "general_knowledge_enabled"
+CHATBOT_KB_ENABLED = "chatbot_kb_enabled"
 
 ADMIN_ONLY_KEYS = {
     OPENROUTER_API_KEY,
@@ -31,4 +32,5 @@ ALL_KEYS = {
     OFF_TOPIC_MESSAGE,
     MAX_SITEMAP_URLS,
     GENERAL_KNOWLEDGE_ENABLED,
+    CHATBOT_KB_ENABLED,
 }

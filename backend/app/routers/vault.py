@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.base import AIEngineError
 from app.ai.factory import get_embedding_engine
 from app.core.deps import require_agent_or_admin
+from app.crud.category import build_category_path_map, get_chatbot_kb_category_ids
 from app.crud.vault import (
     bulk_set_memory_enabled,
     create_vault_entry,
@@ -11,6 +12,7 @@ from app.crud.vault import (
     get_vault_entry,
     keyword_search_vault,
     list_vault_entries,
+    list_vault_entries_by_category_ids,
     semantic_search_vault,
 )
 from app.db.session import get_db
@@ -19,6 +21,7 @@ from app.rag.vault_reindex import embed_vault_entry
 from app.schemas.common import PaginatedResponse
 from app.schemas.vault import (
     BulkMemoryToggleRequest,
+    ChatbotKbEntryOut,
     VaultEntryCreate,
     VaultEntryOut,
     VaultEntryUpdate,
@@ -102,6 +105,29 @@ async def search(q: str = Query(..., min_length=1), limit: int = Query(20, ge=1,
     return results[:limit]
 
 
+@router.get("/chatbot-kb", response_model=list[ChatbotKbEntryOut])
+async def list_chatbot_kb(db: AsyncSession = Depends(get_db)):
+    """Read-only view of exactly the entries imported from the sawochatbot
+    Library KB — kept separate from the generic /vault list so the admin
+    screen for this content never mixes in crawler- or manually-added
+    entries (see CHATBOT_KB_ENABLED, which gates the same category tree for
+    retrieval)."""
+    category_ids = await get_chatbot_kb_category_ids(db)
+    entries = await list_vault_entries_by_category_ids(db, category_ids)
+    category_paths = await build_category_path_map(db)
+    return [
+        ChatbotKbEntryOut(
+            id=entry.id,
+            title=entry.title,
+            content=entry.content,
+            category_path=category_paths.get(entry.category_id, ""),
+            memory_enabled=entry.memory_enabled,
+            source_url=entry.source_url,
+        )
+        for entry in entries
+    ]
+
+
 @router.post("/bulk-memory-toggle")
 async def bulk_memory_toggle(payload: BulkMemoryToggleRequest, db: AsyncSession = Depends(get_db)):
     entries = await bulk_set_memory_enabled(db, payload.entry_ids, payload.enabled)
@@ -155,7 +181,7 @@ async def update(entry_id: int, payload: VaultEntryUpdate, db: AsyncSession = De
 
     changed_content = False
     memory_toggled_on = False
-    for field_name in ("title", "content", "category_id", "tags"):
+    for field_name in ("title", "content", "category_id", "tags", "source_url"):
         if field_name in payload.model_fields_set:
             setattr(entry, field_name, getattr(payload, field_name))
             if field_name in ("title", "content"):

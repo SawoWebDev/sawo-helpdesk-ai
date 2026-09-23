@@ -38,6 +38,7 @@ async def list_all(
     status_filter: str | None = Query(None, alias="status"),
     category_id: int | None = None,
     search: str | None = None,
+    sort: str = Query("recent", pattern="^(recent|frequency)$"),
     db: AsyncSession = Depends(get_db),
 ):
     stmt = select(UnansweredQuestion)
@@ -55,11 +56,13 @@ async def list_all(
         count_stmt = count_stmt.where(UnansweredQuestion.question_text.ilike(like))
 
     total = (await db.execute(count_stmt)).scalar_one()
-    stmt = (
-        stmt.order_by(UnansweredQuestion.created_at.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-    )
+    if sort == "frequency":
+        stmt = stmt.order_by(
+            UnansweredQuestion.occurrence_count.desc(), UnansweredQuestion.created_at.desc()
+        )
+    else:
+        stmt = stmt.order_by(UnansweredQuestion.created_at.desc())
+    stmt = stmt.offset((page - 1) * page_size).limit(page_size)
     result = await db.execute(stmt)
     items = list(result.scalars().all())
 

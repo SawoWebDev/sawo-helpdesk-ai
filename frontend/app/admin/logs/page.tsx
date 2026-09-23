@@ -17,6 +17,7 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
+import PageHeader from "@/components/admin/PageHeader";
 
 interface ChatLogRow {
   id: number;
@@ -318,9 +319,7 @@ export default function LogsPage() {
 
   return (
     <div className="flex h-[calc(100vh-3rem)] flex-col">
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Chat Logs</h1>
-      </div>
+      <PageHeader icon="fa-solid fa-comments" title="Chat Logs" description="Browse and search full chat session transcripts." />
 
       {error && (
         <p className="mb-3 rounded bg-red-50 px-3 py-2 text-sm text-red-800 dark:bg-red-500/15 dark:text-red-300">{error}</p>

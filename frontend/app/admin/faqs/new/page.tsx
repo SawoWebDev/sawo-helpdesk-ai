@@ -1,11 +1,12 @@
 "use client";
 
 import FAQForm from "@/components/admin/FAQForm";
+import PageHeader from "@/components/admin/PageHeader";
 
 export default function NewFAQPage() {
   return (
     <div>
-      <h1 className="mb-6 text-xl font-semibold text-slate-800 dark:text-slate-100">New FAQ Entry</h1>
+      <PageHeader icon="fa-solid fa-circle-question" title="New FAQ Entry" />
       <FAQForm />
     </div>
   );

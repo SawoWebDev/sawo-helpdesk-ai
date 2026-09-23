@@ -27,9 +27,24 @@ def _today_start_naive_utc() -> datetime:
     return now.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
+def _pct_delta(current: float, previous: float) -> float | None:
+    if previous == 0:
+        return None if current == 0 else 100.0
+    return round(((current - previous) / previous) * 100, 1)
+
+
+def _p95(values: list[int]) -> int | None:
+    if not values:
+        return None
+    sorted_values = sorted(values)
+    index = max(round((len(sorted_values) * 0.95) + 0.5) - 1, 0)
+    return sorted_values[min(index, len(sorted_values) - 1)]
+
+
 async def get_overview(db: AsyncSession) -> dict:
     today_start = _today_start_naive_utc()
     since_7d = _days_ago_naive_utc(7)
+    since_14d = _days_ago_naive_utc(14)
     since_30d = _days_ago_naive_utc(30)
 
     chats_today = (
@@ -51,6 +66,21 @@ async def get_overview(db: AsyncSession) -> dict:
     answered_7d = sum(1 for row in week_rows if row.matched_faq_ids or row.matched_vault_ids)
     answered_rate_7d = round((answered_7d / chats_7d) * 100, 1) if chats_7d else 0.0
 
+    previous_week_rows = (
+        await db.execute(
+            select(ChatLog.matched_faq_ids, ChatLog.matched_vault_ids).where(
+                ChatLog.created_at >= since_14d, ChatLog.created_at < since_7d
+            )
+        )
+    ).all()
+    previous_chats_7d = len(previous_week_rows)
+    previous_answered_7d = sum(
+        1 for row in previous_week_rows if row.matched_faq_ids or row.matched_vault_ids
+    )
+    previous_answered_rate_7d = (
+        round((previous_answered_7d / previous_chats_7d) * 100, 1) if previous_chats_7d else None
+    )
+
     unanswered_pending = (
         await db.execute(
             select(func.count(UnansweredQuestion.id)).where(UnansweredQuestion.status == "pending")
@@ -69,6 +99,20 @@ async def get_overview(db: AsyncSession) -> dict:
             )
         )
     ).scalar_one()
+    ai_cost_7d = (
+        await db.execute(
+            select(func.coalesce(func.sum(AIUsageLog.cost_usd), 0.0)).where(
+                AIUsageLog.created_at >= since_7d
+            )
+        )
+    ).scalar_one()
+    previous_ai_cost_7d = (
+        await db.execute(
+            select(func.coalesce(func.sum(AIUsageLog.cost_usd), 0.0)).where(
+                AIUsageLog.created_at >= since_14d, AIUsageLog.created_at < since_7d
+            )
+        )
+    ).scalar_one()
     ai_cost_30d = (
         await db.execute(
             select(func.coalesce(func.sum(AIUsageLog.cost_usd), 0.0)).where(
@@ -76,6 +120,14 @@ async def get_overview(db: AsyncSession) -> dict:
             )
         )
     ).scalar_one()
+    latency_values = (
+        await db.execute(
+            select(AIUsageLog.latency_ms).where(
+                AIUsageLog.created_at >= since_7d, AIUsageLog.latency_ms.is_not(None)
+            )
+        )
+    ).scalars().all()
+    avg_latency_7d = round(sum(latency_values) / len(latency_values)) if latency_values else None
 
     return {
         "chats_today": chats_today,
@@ -83,6 +135,17 @@ async def get_overview(db: AsyncSession) -> dict:
         "chats_30d": chats_30d,
         "unique_sessions_7d": unique_sessions_7d,
         "answered_rate_7d": answered_rate_7d,
+        "chats_7d_delta_pct": _pct_delta(chats_7d, previous_chats_7d),
+        "answered_rate_delta_7d_points": (
+            None
+            if previous_answered_rate_7d is None
+            else round(answered_rate_7d - previous_answered_rate_7d, 1)
+        ),
+        "ai_cost_7d_usd": float(ai_cost_7d),
+        "ai_cost_7d_delta_pct": _pct_delta(float(ai_cost_7d), float(previous_ai_cost_7d)),
+        "avg_latency_7d_ms": avg_latency_7d,
+        "p95_latency_7d_ms": _p95(latency_values),
+        "cost_per_answer_7d_usd": float(ai_cost_7d) / answered_7d if answered_7d else None,
         "unanswered_pending": unanswered_pending,
         "faq_total": faq_total,
         "faq_published": faq_published,

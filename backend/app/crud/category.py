@@ -104,6 +104,35 @@ async def get_or_create_other_category(db: AsyncSession) -> Category:
     return category
 
 
+CHATBOT_KB_ROOT_CATEGORY_NAME = "SAWO Chatbot KB"
+
+
+async def get_chatbot_kb_category_ids(db: AsyncSession) -> set[int]:
+    """All category ids under the sawochatbot import's root category (the root
+    included), used to scope both retrieval (CHATBOT_KB_ENABLED toggle) and
+    the admin display to just that imported content — by id rather than a
+    name-prefix match on the path string, so a category that merely starts
+    with the same text can't be caught by accident."""
+    result = await db.execute(select(Category))
+    categories = list(result.scalars().all())
+    root = next(
+        (c for c in categories if c.parent_id is None and c.name == CHATBOT_KB_ROOT_CATEGORY_NAME),
+        None,
+    )
+    if root is None:
+        return set()
+
+    ids = {root.id}
+    changed = True
+    while changed:
+        changed = False
+        for c in categories:
+            if c.parent_id in ids and c.id not in ids:
+                ids.add(c.id)
+                changed = True
+    return ids
+
+
 async def build_category_path_map(db: AsyncSession) -> dict[int, str]:
     """Map each category id to its full 'Parent > Child' path string, for export."""
     result = await db.execute(select(Category))

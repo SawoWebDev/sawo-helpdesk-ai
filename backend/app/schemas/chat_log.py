@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -15,6 +16,8 @@ class ChatLogOut(BaseModel):
     engine_used: str
     session_id: str | None
     ip_address: str | None
+    rating: str | None
+    rated_at: datetime | None
     created_at: datetime
 
 
@@ -31,6 +34,14 @@ class ChatResponse(BaseModel):
     matched_vault_ids: list[int]
     image_urls: list[str]
     reference_urls: list[str]
+    chat_log_id: int | None = None
+    low_confidence: bool = False
+
+
+class ChatFeedbackRequest(BaseModel):
+    chat_log_id: int
+    session_id: str
+    rating: Literal["up", "down"]
 
 
 class SessionSummary(BaseModel):

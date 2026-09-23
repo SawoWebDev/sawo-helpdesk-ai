@@ -4,6 +4,7 @@ import { Fragment, FormEvent, useEffect, useState } from "react";
 import { apiDelete, apiGet, apiPost, apiPut, getToken, ApiError } from "@/lib/api";
 import CategorySelect, { CategoryOption } from "@/components/admin/CategorySelect";
 import Pagination from "@/components/admin/Pagination";
+import PageHeader from "@/components/admin/PageHeader";
 
 // Above this many discovered URLs, rendering one checkbox row per URL would
 // put hundreds of thousands of DOM nodes on the page and freeze the browser
@@ -503,9 +504,11 @@ export default function LibraryPage() {
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Library</h1>
-      </div>
+      <PageHeader
+        icon="fa-solid fa-book-open"
+        title="Library"
+        description="Upload and manage documents the chatbot can search."
+      />
 
       {error && (
         <p className="mb-4 rounded bg-red-50 px-3 py-2 text-sm text-red-800 dark:bg-red-500/15 dark:text-red-300">

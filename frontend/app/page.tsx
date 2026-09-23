@@ -17,6 +17,8 @@ interface ChatResponse {
   matched_faq_ids: number[];
   image_urls: string[];
   reference_urls: string[];
+  chat_log_id: number | null;
+  low_confidence: boolean;
 }
 
 const ONLINE_DOT_CLICK_TARGET = 5;
@@ -55,6 +57,28 @@ export default function ChatPage() {
     return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
 
+  async function handleFeedback(chatLogId: number, rating: "up" | "down") {
+    // Optimistic: the vast majority of feedback submissions succeed, and
+    // waiting on the round-trip before showing the selected state would make
+    // the button feel unresponsive for no real benefit.
+    setMessages((prev) =>
+      prev.map((m) => (m.chatLogId === chatLogId ? { ...m, rating } : m))
+    );
+    try {
+      await apiPost("/api/chat/feedback", {
+        chat_log_id: chatLogId,
+        session_id: getOrCreateSessionId(),
+        rating,
+      });
+      showToast("Thanks for your feedback");
+    } catch {
+      setMessages((prev) =>
+        prev.map((m) => (m.chatLogId === chatLogId ? { ...m, rating: undefined } : m))
+      );
+      showToast("Couldn't send feedback, please try again");
+    }
+  }
+
   async function handleSend(text: string) {
     setMessages((prev) => [...prev, { role: "user", text, time: getTime() }]);
     setLoading(true);
@@ -72,6 +96,8 @@ export default function ChatPage() {
           imageUrls: res.image_urls,
           referenceUrls: res.reference_urls,
           time: getTime(),
+          chatLogId: res.chat_log_id ?? undefined,
+          lowConfidence: res.low_confidence,
         },
       ]);
     } catch {
@@ -113,6 +139,7 @@ export default function ChatPage() {
         loading={loading}
         onSelectSuggestion={handleSend}
         onCopyMessage={() => showToast("Response copied")}
+        onFeedback={handleFeedback}
       />
       <ChatInput onSend={handleSend} disabled={loading} />
       <Toast message={toast} />

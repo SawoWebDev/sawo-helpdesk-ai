@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { apiDelete, apiGet, apiPost, downloadFile, getToken, ApiError } from "@/lib/api";
 import OpenRouterModelSelect from "@/components/admin/OpenRouterModelSelect";
+import PageHeader from "@/components/admin/PageHeader";
 
 // Matches the backend's settings.py MASK constant — the API never returns
 // the real key, only this sentinel when one is saved.
@@ -168,7 +169,11 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-xl font-semibold text-slate-800 dark:text-slate-100">Settings</h1>
+      <PageHeader
+        icon="fa-solid fa-gear"
+        title="Settings"
+        description="Configure the chatbot's model, behavior, and stored data."
+      />
 
       <div className="mb-6 flex gap-2 border-b border-slate-200 dark:border-white/10">
         <button

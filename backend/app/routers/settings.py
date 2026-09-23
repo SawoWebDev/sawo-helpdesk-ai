@@ -29,6 +29,7 @@ def _to_out(values: dict[str, str]) -> SettingsOut:
         off_topic_message=values.get(keys.OFF_TOPIC_MESSAGE, ""),
         max_sitemap_urls=int(values.get(keys.MAX_SITEMAP_URLS, "10000")),
         general_knowledge_enabled=values.get(keys.GENERAL_KNOWLEDGE_ENABLED, "true") == "true",
+        chatbot_kb_enabled=values.get(keys.CHATBOT_KB_ENABLED, "true") == "true",
     )
 
 
@@ -68,6 +69,9 @@ async def update_settings(payload: SettingsUpdate, db: AsyncSession = Depends(ge
 
     if "general_knowledge_enabled" in payload.model_fields_set and payload.general_knowledge_enabled is not None:
         updates[keys.GENERAL_KNOWLEDGE_ENABLED] = "true" if payload.general_knowledge_enabled else "false"
+
+    if "chatbot_kb_enabled" in payload.model_fields_set and payload.chatbot_kb_enabled is not None:
+        updates[keys.CHATBOT_KB_ENABLED] = "true" if payload.chatbot_kb_enabled else "false"
 
     # Only overwrite the API key if the admin actually typed a new (unmasked) value.
     if "openrouter_api_key" in payload.model_fields_set:

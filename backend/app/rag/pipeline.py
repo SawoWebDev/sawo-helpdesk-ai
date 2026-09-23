@@ -2,14 +2,13 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.base import AIEngineError
 from app.ai.factory import get_active_engine, get_embedding_engine
 from app.core import setting_keys as keys
-from app.crud.category import get_or_create_other_category
-from app.crud.faq import create_faq, find_duplicate_faq
+from app.crud.category import get_chatbot_kb_category_ids, get_or_create_other_category
 from app.crud.settings import get_all_settings
 from app.db.vec_store import FAQ_VEC_TABLE, VAULT_VEC_TABLE, knn_search
 from app.models.chat_log import ChatLog
@@ -17,7 +16,6 @@ from app.models.faq import FAQEntry
 from app.models.unanswered import UnansweredQuestion
 from app.models.vault_entry import VaultEntry
 from app.rag.filler import is_filler
-from app.rag.reindex import embed_entry
 from app.services.ai_usage import (
     FEATURE_CHAT_ANSWER_GENERATION,
     FEATURE_CHAT_OFF_TOPIC_REPLY,
@@ -183,6 +181,20 @@ async def _is_on_topic(engine, question: str) -> bool:
 
 
 @dataclass
+class PromotionPayload:
+    """Everything a background task needs to promote a Library-grounded chat
+    answer into a draft FAQ, without handing it the request's AsyncSession
+    (see faq_promotion.promote_answer_to_draft)."""
+
+    question: str
+    answer: str
+    image_urls: list[str]
+    reference_urls: list[str]
+    source_id: int | None
+    query_vector: list[float]
+
+
+@dataclass
 class RagResult:
     answer: str
     is_fallback: bool
@@ -193,6 +205,8 @@ class RagResult:
     reference_urls: list[str] = field(default_factory=list)
     engine_used: str = "none"
     low_confidence: bool = False
+    chat_log_id: int | None = None
+    promotion: PromotionPayload | None = None
 
 
 async def answer_question(
@@ -216,6 +230,7 @@ async def _answer_question_impl(
     off_topic_threshold = float(settings_values[keys.OFF_TOPIC_THRESHOLD])
     off_topic_message = settings_values[keys.OFF_TOPIC_MESSAGE]
     general_knowledge_enabled = settings_values[keys.GENERAL_KNOWLEDGE_ENABLED] == "true"
+    chatbot_kb_enabled = settings_values[keys.CHATBOT_KB_ENABLED] == "true"
 
     engine = await get_active_engine(db)
 
@@ -311,6 +326,17 @@ async def _answer_question_impl(
             )
         )
         vault_by_id = {entry.id: entry for entry in vault_result.scalars()}
+        if not chatbot_kb_enabled and vault_by_id:
+            # Separate opt-out from General Knowledge as a whole: drop only
+            # entries under the sawochatbot import's category tree, leaving
+            # crawler- and manually-added Library content untouched.
+            chatbot_kb_category_ids = await get_chatbot_kb_category_ids(db)
+            if chatbot_kb_category_ids:
+                vault_by_id = {
+                    entry_id: entry
+                    for entry_id, entry in vault_by_id.items()
+                    if entry.category_id not in chatbot_kb_category_ids
+                }
 
     faq_rows = sorted(
         [(("faq", faq_by_id[entry_id]), similarity) for entry_id, similarity in faq_hits if entry_id in faq_by_id],
@@ -359,6 +385,10 @@ async def _answer_question_impl(
     image_similarity: dict[str, float] = {}
     reference_urls: list[str] = []
     url_similarity: dict[str, float] = {}
+    # rows is sorted best-first, so the first vault entry encountered here is
+    # the top-ranked one — used below to link an auto-promoted FAQ back to
+    # the Library source it was actually drawn from.
+    top_vault_source_id: int | None = None
     for (kind, entry), similarity in rows:
         if kind == "faq":
             context_parts.append(f"Q: {entry.question}\nA: {entry.answer}")
@@ -372,6 +402,8 @@ async def _answer_question_impl(
         else:
             context_parts.append(f"Topic: {entry.title}\n{entry.content}")
             matched_vault_ids.append(entry.id)
+            if top_vault_source_id is None:
+                top_vault_source_id = entry.source_id
             if entry.source_url:
                 reference_urls.append(entry.source_url)
                 url_similarity[entry.source_url] = max(url_similarity.get(entry.source_url, 0.0), similarity)
@@ -468,34 +500,27 @@ async def _answer_question_impl(
     db.add(chat_log)
     await db.commit()
 
-    # Auto-promote every real Library-grounded answer straight into FAQ,
-    # published immediately — no separate review step. Only when the answer
-    # actually drew on Vault content and FAQ wasn't already the primary-tier
-    # answer (a weak FAQ row can still ride along in the merged context pool
-    # without being why the question was answered — matched_faq_ids alone
-    # isn't a reliable "already covered by FAQ" signal). Relying on that
-    # retrieval check alone isn't a hard enough guarantee against duplicates
-    # though — e.g. the same question asked twice in quick succession, before
-    # the first save's embedding makes the new FAQ rank as primary-tier — so
-    # also explicitly check for an existing exact/near-duplicate question
-    # right before creating one.
-    if matched_vault_ids and not faq_was_primary:
-        try:
-            if await find_duplicate_faq(db, question, query_vector) is None:
-                faq_entry = await create_faq(
-                    db,
-                    question=question,
-                    answer=generated,
-                    category_id=None,
-                    image_urls=list(dict.fromkeys(image_urls)),
-                    reference_urls=reference_urls,
-                    source="chat_auto",
-                    source_label="Auto-saved from chat",
-                )
-                await embed_entry(db, faq_entry)
-                await db.commit()
-        except AIEngineError:
-            pass
+    # Flag every real Library-grounded answer for promotion into a draft FAQ
+    # — not published outright, an admin reviews it (see faq_promotion.py).
+    # Only when the answer actually drew on Vault content and FAQ wasn't
+    # already the primary-tier answer (a weak FAQ row can still ride along in
+    # the merged context pool without being why the question was answered —
+    # matched_faq_ids alone isn't a reliable "already covered by FAQ"
+    # signal). The actual duplicate check and DB write happen in the
+    # background task, off the request path — they cost an extra embeddings
+    # call for candidate questions and give the asker nothing.
+    promotion = (
+        PromotionPayload(
+            question=question,
+            answer=generated,
+            image_urls=list(dict.fromkeys(image_urls)),
+            reference_urls=reference_urls,
+            source_id=top_vault_source_id,
+            query_vector=query_vector,
+        )
+        if matched_vault_ids and not faq_was_primary
+        else None
+    )
 
     return RagResult(
         answer=generated,
@@ -507,6 +532,8 @@ async def _answer_question_impl(
         reference_urls=reference_urls,
         engine_used=engine.name,
         low_confidence=low_confidence,
+        chat_log_id=chat_log.id,
+        promotion=promotion,
     )
 
 
@@ -556,6 +583,7 @@ async def _off_topic(
         confidence_score=confidence_score,
         matched_faq_ids=[],
         engine_used=engine_used,
+        chat_log_id=chat_log.id,
     )
 
 
@@ -568,14 +596,35 @@ async def _fallback(
     session_id: str | None = None,
     ip_address: str | None = None,
 ) -> RagResult:
-    other_category = await get_or_create_other_category(db)
-    unanswered = UnansweredQuestion(
-        question_text=question,
-        status="pending",
-        category_id=other_category.id,
-        confidence_score=confidence_score,
+    # Collapse repeat askings of the same question into one pending row with
+    # a counter, rather than a fresh row per occurrence — otherwise a
+    # question asked 50 times is 50 rows and the admin can't see what to fix
+    # first. Scoped to status == "pending" so a question that regresses after
+    # being resolved correctly opens a new row instead of reviving the old
+    # (already-answered) one.
+    normalized = question.strip().lower()
+    now = datetime.now(timezone.utc)
+    existing_result = await db.execute(
+        select(UnansweredQuestion).where(
+            UnansweredQuestion.status == "pending",
+            func.lower(func.trim(UnansweredQuestion.question_text)) == normalized,
+        )
     )
-    db.add(unanswered)
+    existing = existing_result.scalars().first()
+    if existing is not None:
+        existing.occurrence_count += 1
+        existing.last_asked_at = now
+    else:
+        other_category = await get_or_create_other_category(db)
+        unanswered = UnansweredQuestion(
+            question_text=question,
+            status="pending",
+            category_id=other_category.id,
+            confidence_score=confidence_score,
+            occurrence_count=1,
+            last_asked_at=now,
+        )
+        db.add(unanswered)
 
     chat_log = ChatLog(
         question_text=question,
@@ -595,4 +644,5 @@ async def _fallback(
         confidence_score=confidence_score,
         matched_faq_ids=[],
         engine_used=engine_used,
+        chat_log_id=chat_log.id,
     )

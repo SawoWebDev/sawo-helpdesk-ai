@@ -12,6 +12,8 @@ interface UnansweredQuestion {
   status: string;
   category_id: number | null;
   confidence_score: number | null;
+  occurrence_count: number;
+  last_asked_at: string | null;
   created_at: string;
   resolved_at: string | null;
   resulting_faq_id: number | null;
@@ -28,6 +30,7 @@ export default function UnansweredTab({ onChange }: { onChange?: () => void }) {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState("pending");
+  const [sort, setSort] = useState<"recent" | "frequency">("recent");
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [answer, setAnswer] = useState("");
   const [resolveCategoryId, setResolveCategoryId] = useState<number | null>(null);
@@ -36,7 +39,7 @@ export default function UnansweredTab({ onChange }: { onChange?: () => void }) {
   const pageSize = 20;
 
   async function load() {
-    const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+    const params = new URLSearchParams({ page: String(page), page_size: String(pageSize), sort });
     if (statusFilter) params.set("status", statusFilter);
     const data = await apiGet<Paginated<UnansweredQuestion>>(`/api/unanswered?${params.toString()}`);
     setItems(data.items);
@@ -50,7 +53,7 @@ export default function UnansweredTab({ onChange }: { onChange?: () => void }) {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, statusFilter]);
+  }, [page, statusFilter, sort]);
 
   function startResolve(item: UnansweredQuestion) {
     setExpandedId(item.id);
@@ -88,18 +91,31 @@ export default function UnansweredTab({ onChange }: { onChange?: () => void }) {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Unanswered Questions</h1>
-        <select
-          value={statusFilter}
-          onChange={(e) => {
-            setPage(1);
-            setStatusFilter(e.target.value);
-          }}
-          className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
-        >
-          <option value="pending">Pending</option>
-          <option value="answered">Answered</option>
-          <option value="">All</option>
-        </select>
+        <div className="flex items-center gap-2">
+          <select
+            value={sort}
+            onChange={(e) => {
+              setPage(1);
+              setSort(e.target.value as "recent" | "frequency");
+            }}
+            className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
+          >
+            <option value="recent">Most recent</option>
+            <option value="frequency">Most asked</option>
+          </select>
+          <select
+            value={statusFilter}
+            onChange={(e) => {
+              setPage(1);
+              setStatusFilter(e.target.value);
+            }}
+            className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
+          >
+            <option value="pending">Pending</option>
+            <option value="answered">Answered</option>
+            <option value="">All</option>
+          </select>
+        </div>
       </div>
 
       <div className="flex flex-col gap-3">
@@ -107,7 +123,14 @@ export default function UnansweredTab({ onChange }: { onChange?: () => void }) {
           <div key={item.id} className="rounded-lg border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-night-surface">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{item.question_text}</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{item.question_text}</p>
+                  {item.occurrence_count > 1 && (
+                    <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-400/15 dark:text-amber-300">
+                      Asked {item.occurrence_count}x
+                    </span>
+                  )}
+                </div>
                 <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
                   {new Date(item.created_at).toLocaleString()} · status: {item.status}
                   {item.confidence_score !== null && ` · confidence: ${item.confidence_score.toFixed(2)}`}

@@ -2,25 +2,40 @@
 
 import { ReactNode } from "react";
 
+type MetricTone = "blue" | "emerald" | "amber" | "rose" | "violet" | "brand";
+
+const metricToneClasses: Record<MetricTone, { icon: string; wash: string; accent: string }> = {
+  blue: { icon: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300", wash: "from-blue-50/90 to-white dark:from-blue-500/10 dark:to-night-surface", accent: "bg-blue-500" },
+  emerald: { icon: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300", wash: "from-emerald-50/90 to-white dark:from-emerald-500/10 dark:to-night-surface", accent: "bg-emerald-500" },
+  amber: { icon: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300", wash: "from-amber-50/90 to-white dark:from-amber-500/10 dark:to-night-surface", accent: "bg-amber-500" },
+  rose: { icon: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300", wash: "from-rose-50/90 to-white dark:from-rose-500/10 dark:to-night-surface", accent: "bg-rose-500" },
+  violet: { icon: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300", wash: "from-violet-50/90 to-white dark:from-violet-500/10 dark:to-night-surface", accent: "bg-violet-500" },
+  brand: { icon: "bg-sawo-light/50 text-sawo-darker dark:bg-sawo/20 dark:text-sawo-light", wash: "from-sawo-light/30 to-white dark:from-sawo/10 dark:to-night-surface", accent: "bg-sawo" },
+};
+
 export function MetricCard({
   label,
   value,
   subtitle,
   icon,
+  tone = "brand",
 }: {
   label: string;
   value: ReactNode;
   subtitle?: ReactNode;
   icon?: ReactNode;
+  tone?: MetricTone;
 }) {
+  const classes = metricToneClasses[tone];
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-night-surface">
+    <div className={`group relative overflow-hidden rounded-lg border border-slate-200 bg-gradient-to-br ${classes.wash} p-4 shadow-sm transition-shadow hover:shadow-md dark:border-white/10`}>
+      <span className={`absolute inset-x-0 top-0 h-0.5 ${classes.accent}`} aria-hidden />
       <div className="flex items-start justify-between gap-2">
-        <p className="text-sm text-slate-500 dark:text-slate-400">{label}</p>
-        {icon && <span className="text-sawo-dark dark:text-sawo-light">{icon}</span>}
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</p>
+        {icon && <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${classes.icon}`}>{icon}</span>}
       </div>
-      <p className="mt-1 text-2xl font-semibold text-slate-800 dark:text-slate-100">{value}</p>
-      {subtitle && <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">{subtitle}</p>}
+      <p className="mt-2 text-2xl font-semibold tabular-nums text-slate-800 dark:text-slate-100">{value}</p>
+      {subtitle && <p className="mt-1 min-h-4 text-xs text-slate-500 dark:text-slate-400">{subtitle}</p>}
     </div>
   );
 }
@@ -35,9 +50,9 @@ export function Card({
   children: ReactNode;
 }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-night-surface">
+    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md dark:border-white/10 dark:bg-night-surface">
       <div className="mb-3 flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">{title}</h3>
+        <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">{title}</h3>
         {action}
       </div>
       {children}
@@ -109,16 +124,14 @@ export function RangeTabs({
   options?: number[];
 }) {
   return (
-    <div className="flex gap-1 rounded-md border border-slate-200 p-0.5 text-xs dark:border-white/10">
+    <div className="flex gap-1 rounded-md border border-white/25 p-0.5 text-xs">
       {options.map((days) => (
         <button
           key={days}
           type="button"
           onClick={() => onChange(days)}
           className={`rounded px-2 py-1 font-medium transition-colors ${
-            value === days
-              ? "bg-sawo text-white dark:bg-sawo-dark"
-              : "text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-white/5"
+            value === days ? "bg-white/90 text-sawo-darker" : "text-white/75 hover:bg-white/10"
           }`}
         >
           {days}d

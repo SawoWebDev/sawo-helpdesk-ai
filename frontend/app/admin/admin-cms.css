@@ -1,0 +1,519 @@
+/*
+ * SAWO Admin CMS chrome — sidebar + shared page-header design tokens and
+ * structural styles, ported from the reference design documentation at
+ * D:\NEW_SITES\REACT_SITE\SAWO_CMS_DESIGN (01_DESIGN_TOKENS, 02_LAYOUT,
+ * 05_NAVIGATION). Every rule here is scoped under `.cms-admin-shell` so it
+ * cannot leak into the public chat widget or any other part of the app,
+ * which keep using the existing `sawo` Tailwind palette untouched.
+ */
+
+.cms-admin-shell {
+  /* Must reference next/font's injected variable, not the literal family
+     name — next/font registers the loaded font under a scoped/hashed
+     internal name, so `font-family: "Montserrat"` matches nothing and
+     silently falls back to the system sans-serif. */
+  --font: var(--font-montserrat), "Montserrat", sans-serif;
+
+  --brand: #af8564;
+  --brand-dark: #8c6540;
+  --brand-light: #c9a882;
+  --brand-muted: rgba(175, 133, 100, 0.12);
+
+  --bg: #f7f5f2;
+  --surface: #ffffff;
+  --surface-2: #f0ece7;
+
+  --border: #e3ddd6;
+  --border-light: #ede9e3;
+
+  --text: rgb(20, 22, 23);
+  --text-2: #5a5550;
+  --text-3: #9a918a;
+
+  --danger: #c0392b;
+  --danger-bg: #fdf0ef;
+  --success: #2e7d52;
+  --success-bg: #edf7f1;
+  --warning: #b8860b;
+  --warning-bg: #fff8e1;
+  --info: #1a6fa8;
+  --info-bg: rgba(26, 111, 168, 0.08);
+
+  --sidebar-bg: linear-gradient(160deg, #b98d5e 0%, #a67c52 30%, #8c5e38 68%, #74491f 100%);
+  --sidebar-text: rgba(255, 255, 255, 0.85);
+  --sidebar-hover: rgba(255, 255, 255, 0.14);
+  --sidebar-active-border: #ffe9d1;
+  --sidebar-active-text: #fff8f0;
+  --sidebar-w: 210px;
+  --sidebar-w-collapsed: 68px;
+
+  --r-sm: 6px;
+  --r: 10px;
+  --r-lg: 16px;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.12);
+
+  --t: 0.2s ease;
+
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.dark .cms-admin-shell {
+  --bg: #241d16;
+  --surface: #2c241d;
+  --surface-2: #382e24;
+  --border: #4a3c2e;
+  --border-light: #3c3226;
+
+  --text: rgba(255, 255, 255, 0.96);
+  --text-2: rgba(255, 255, 255, 0.92);
+  --text-3: rgba(255, 255, 255, 0.68);
+
+  --danger-bg: rgba(192, 57, 43, 0.2);
+  --success-bg: rgba(46, 125, 82, 0.2);
+  --warning-bg: rgba(184, 134, 11, 0.2);
+  --info-bg: rgba(26, 111, 168, 0.2);
+
+  --sidebar-bg: linear-gradient(160deg, #6b4b2d 0%, #5c4128 32%, #45301c 70%, #2f2012 100%);
+  --sidebar-hover: rgba(255, 255, 255, 0.1);
+  --sidebar-active-border: #e8c9a0;
+  --sidebar-active-text: #ffe9d1;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 10px 36px rgba(0, 0, 0, 0.55);
+}
+
+/* ---------- Shell ---------- */
+.cms-admin-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.cms-admin-main {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+
+.cms-admin-main-content {
+  flex: 1;
+  min-height: 0;
+  padding: 1.5rem 2rem;
+}
+
+/* ---------- Sidebar ---------- */
+.cms-sidebar {
+  position: sticky;
+  top: 0;
+  flex-shrink: 0;
+  width: var(--sidebar-w);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--sidebar-bg);
+  color: var(--sidebar-text);
+  z-index: 10;
+  transition: width 0.22s ease;
+}
+
+.cms-sidebar.is-collapsed {
+  width: var(--sidebar-w-collapsed);
+}
+
+.cms-sidebar-logo {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 1.5rem 1.25rem 1.15rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--sidebar-active-text);
+  text-decoration: none;
+  transition: transform 0.18s ease;
+}
+.cms-sidebar-logo:hover {
+  transform: scale(1.02);
+}
+.cms-sidebar-logo-img {
+  border-radius: var(--r-sm);
+  flex-shrink: 0;
+}
+.cms-sidebar-logo-text {
+  min-width: 0;
+}
+.cms-sidebar-logo-text strong {
+  display: block;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+.cms-sidebar-logo-text span {
+  display: block;
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.7);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cms-sidebar.is-collapsed .cms-sidebar-logo-text {
+  display: none;
+}
+
+.cms-sidebar-collapse-btn {
+  position: absolute;
+  top: 50%;
+  right: -13px;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--sidebar-bg);
+  color: #fff8f0;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  z-index: 500;
+  font-size: 0.68rem;
+  transition: filter var(--t);
+}
+.cms-sidebar-collapse-btn:hover {
+  filter: brightness(1.12);
+}
+
+.cms-sidebar-nav {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.85rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.cms-sidebar-nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: var(--r-sm);
+  color: var(--sidebar-text);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+  border-left: 3px solid transparent;
+  transition: background var(--t), color var(--t), box-shadow var(--t);
+}
+.cms-sidebar-nav-item:hover {
+  background: var(--sidebar-hover);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.18), inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+}
+.cms-sidebar-nav-item.is-active {
+  background: var(--sidebar-hover);
+  color: var(--sidebar-active-text);
+  font-weight: 700;
+  border-left-color: var(--sidebar-active-border);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -2px 3px rgba(0, 0, 0, 0.2);
+}
+.cms-sidebar-nav-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  font-size: 0.95rem;
+}
+.cms-sidebar-nav-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cms-sidebar.is-collapsed .cms-sidebar-nav-label {
+  display: none;
+}
+.cms-sidebar-nav-dot {
+  position: absolute;
+  right: 0.55rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+}
+
+.cms-sidebar-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--r);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+.cms-sidebar.is-collapsed .cms-sidebar-footer {
+  justify-content: center;
+}
+.cms-sidebar-footer-text {
+  min-width: 0;
+}
+.cms-sidebar-footer-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--sidebar-active-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cms-sidebar-footer-role {
+  font-size: 0.68rem;
+  color: rgba(255, 255, 255, 0.65);
+  text-transform: capitalize;
+}
+.cms-sidebar.is-collapsed .cms-sidebar-footer-text {
+  display: none;
+}
+.cms-sidebar-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+.cms-sidebar.is-collapsed .cms-sidebar-footer-actions {
+  flex-direction: column;
+}
+.cms-sidebar-footer-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background var(--t), color var(--t);
+}
+.cms-sidebar-footer-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+/* fa-right-from-bracket exits rightward by default; mirrored so the arrow
+   points toward the door/text instead of away from the sidebar. */
+.cms-sidebar-footer-btn i {
+  transform: scaleX(-1);
+}
+
+/* ---------- Mobile topbar (mobile only, ≤768px) ---------- */
+.cms-topbar {
+  display: none;
+}
+
+.cms-sidebar-overlay {
+  display: none;
+}
+
+/* ---------- Shared per-page header ---------- */
+/* Bleeds edge-to-edge above the page content via a negative margin equal to
+   `.cms-admin-main-content`'s own padding, matching the reference CMS's
+   `PageHeader`, which sits outside the padded content column entirely. */
+.cms-page-header {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: -1.5rem -2rem 1.5rem;
+  padding: 1.4rem 2rem;
+  background: var(--sidebar-bg);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+}
+/* Same soft glow as the sidebar so the two brown surfaces read as one
+   continuous material wrapping around the corner. */
+.cms-page-header::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 140% at 0% 50%, rgba(255, 240, 220, 0.14), transparent 70%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 40%);
+}
+.dark .cms-page-header {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+.cms-page-header-main {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  min-width: 0;
+}
+.cms-page-header-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  border-radius: var(--r);
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #fff8f0;
+  font-size: 1.2rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+.cms-page-title {
+  position: relative;
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.cms-page-description {
+  position: relative;
+  margin: 0.15rem 0 0;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.75);
+}
+.cms-page-header-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+/* ---------- Responsive: 768px / 480px, matching the reference CMS's two
+   real breakpoints. The reference hides its page header entirely on mobile
+   (the topbar's title stands in for it) — we deliberately keep ours visible
+   at every width instead, because several of our page headers carry
+   functional controls in their actions slot (Analytics' date-range tabs,
+   Knowledge's source toggles), and hiding them would silently remove a
+   working feature on mobile. Documented deviation, not an oversight. ---------- */
+@media (max-width: 768px) {
+  /* The sidebar becomes `position: fixed` (out of flow) at this width, so
+     the shell's remaining flex children — the topbar and the main column —
+     need to stack vertically instead of the desktop side-by-side row. */
+  .cms-admin-shell {
+    flex-direction: column;
+    height: 100dvh;
+  }
+  .cms-admin-main {
+    flex: 1;
+    min-height: 0;
+  }
+  .cms-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 260px !important;
+    transform: translateX(-100%);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.35);
+    transition: transform 0.25s ease;
+    z-index: 500;
+  }
+  .cms-sidebar.is-mobile-open {
+    transform: translateX(0);
+  }
+  .cms-sidebar-collapse-btn {
+    display: none;
+  }
+  .cms-sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 499;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+  .cms-sidebar-overlay.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .cms-topbar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 52px;
+    padding: 0 1rem;
+    position: sticky;
+    top: 0;
+    z-index: 300;
+    background: linear-gradient(90deg, #a67c52 0%, #8c5e38 100%);
+    color: #fff8f0;
+  }
+  .dark .cms-topbar {
+    background: linear-gradient(90deg, #5c4128 0%, #3a2a1a 100%);
+  }
+  .cms-topbar-burger {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    border-radius: var(--r-sm);
+    background: transparent;
+    border: none;
+    color: inherit;
+    font-size: 1.1rem;
+    cursor: pointer;
+  }
+  .cms-topbar-logo {
+    border-radius: var(--r-sm);
+    flex-shrink: 0;
+  }
+  .cms-topbar-spacer {
+    flex: 1;
+  }
+  .cms-admin-main-content {
+    padding: 1rem;
+  }
+  .cms-page-header {
+    margin: -1rem -1rem 1rem;
+    padding: 1rem 1.25rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .cms-sidebar {
+    width: 240px !important;
+  }
+  .cms-admin-main-content {
+    padding: 0.75rem;
+  }
+  .cms-page-header {
+    margin: -0.75rem -0.75rem 0.75rem;
+    padding: 0.85rem 1rem;
+  }
+}

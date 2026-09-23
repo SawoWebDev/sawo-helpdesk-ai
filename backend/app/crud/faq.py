@@ -46,17 +46,26 @@ async def find_duplicate_faq(
     question: str,
     question_vector: list[float] | None = None,
     exclude_id: int | None = None,
+    include_drafts: bool = False,
 ) -> FAQEntry | None:
     """Finds an existing FAQ that's either an exact (case/whitespace
     insensitive) match for `question`, or — if `question_vector` is given —
-    semantically near-identical to it. Only considers published FAQs, since
-    a draft isn't live yet and re-saving over it is fine. Used to keep FAQ
-    unique per question, whether saved manually or auto-saved from chat.
-    `exclude_id` skips a given FAQ's own row, for checking an edit against
-    every *other* FAQ."""
+    semantically near-identical to it. Only considers published FAQs by
+    default, since a draft isn't live yet and re-saving over it is fine. Used
+    to keep FAQ unique per question, whether saved manually or auto-saved
+    from chat. `exclude_id` skips a given FAQ's own row, for checking an edit
+    against every *other* FAQ.
+
+    `include_drafts=True` widens the exact-match check to drafts too — for
+    the chat auto-promotion path, where the same question asked repeatedly
+    would otherwise create a new draft every time. This only affects the
+    exact-match half: the semantic half can never match a draft regardless,
+    since a draft has no embedding (embed_entry no-ops for drafts), so it
+    can't appear as a knn_search candidate."""
     normalized = question.strip().lower()
+    statuses = ("published", "draft") if include_drafts else ("published",)
     exact_stmt = select(FAQEntry).where(
-        FAQEntry.status == "published", func.lower(func.trim(FAQEntry.question)) == normalized
+        FAQEntry.status.in_(statuses), func.lower(func.trim(FAQEntry.question)) == normalized
     )
     if exclude_id is not None:
         exact_stmt = exact_stmt.where(FAQEntry.id != exclude_id)

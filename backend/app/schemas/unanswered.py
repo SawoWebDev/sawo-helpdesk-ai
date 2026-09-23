@@ -11,6 +11,8 @@ class UnansweredOut(BaseModel):
     status: str
     category_id: int | None
     confidence_score: float | None
+    occurrence_count: int
+    last_asked_at: datetime | None
     created_at: datetime
     resolved_at: datetime | None
     resulting_faq_id: int | None

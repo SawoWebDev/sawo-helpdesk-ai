@@ -6,7 +6,9 @@ import { apiGet } from "@/lib/api";
 import { CATEGORICAL } from "@/components/admin/analytics/colors";
 import { Card, MetricCard } from "@/components/admin/analytics/StatPrimitives";
 import TrendChart from "@/components/admin/analytics/TrendChart";
+import { fmtMs } from "@/components/admin/logs/format";
 import { ModelIcon } from "@/lib/modelProviders";
+import PageHeader from "@/components/admin/PageHeader";
 
 interface Paginated<T = unknown> {
   items: T[];
@@ -29,6 +31,13 @@ interface DailyUsage {
 interface OverviewStats {
   chats_today: number;
   answered_rate_7d: number;
+  chats_7d: number;
+  chats_7d_delta_pct: number | null;
+  answered_rate_delta_7d_points: number | null;
+  ai_cost_7d_usd: number;
+  ai_cost_7d_delta_pct: number | null;
+  p95_latency_7d_ms: number | null;
+  cost_per_answer_7d_usd: number | null;
   active_model: string;
   active_model_is_free: boolean;
 }
@@ -53,11 +62,18 @@ function timeAgo(iso: string): string {
   return `${days}d ago`;
 }
 
-function formatCost(usd: number): string {
+function formatCost(usd: number | null | undefined): string {
+  if (usd === null || usd === undefined) return "N/A";
   if (usd === 0) return "$0.00";
   if (usd < 0.0001) return "<$0.0001";
   if (usd < 0.01) return `$${usd.toFixed(4)}`;
   return `$${usd.toFixed(2)}`;
+}
+
+function formatDelta(value: number | null | undefined, suffix = "%"): string {
+  if (value === null || value === undefined) return "No prior period";
+  if (value === 0) return `0${suffix} vs prior 7d`;
+  return `${value > 0 ? "+" : ""}${value}${suffix} vs prior 7d`;
 }
 
 // "00".."23" (UTC) -> "12 AM".."11 PM", matching the hour buckets the
@@ -103,7 +119,11 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-xl font-semibold text-slate-800 dark:text-slate-100">Dashboard</h1>
+      <PageHeader
+        icon="fa-solid fa-gauge-high"
+        title="Dashboard"
+        description="Overview of chats, spend, and pending questions."
+      />
 
       <div className="mb-4 grid grid-cols-2 gap-4">
         <Link
@@ -122,12 +142,31 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      <div className="mb-4 grid grid-cols-2 gap-4 md:grid-cols-3">
-        <MetricCard label="Chats Today" value={overview ? overview.chats_today.toLocaleString() : "..."} />
+      <div className="mb-4 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+        <MetricCard
+          label="Chats (7d)"
+          value={overview ? overview.chats_7d.toLocaleString() : "..."}
+          subtitle={overview ? `${overview.chats_today.toLocaleString()} today · ${formatDelta(overview.chats_7d_delta_pct)}` : undefined}
+        />
         <MetricCard
           label="Answered Rate (7d)"
           value={overview ? `${overview.answered_rate_7d}%` : "..."}
-          subtitle="Matched real FAQ/Library content"
+          subtitle={overview ? formatDelta(overview.answered_rate_delta_7d_points, " pts") : "Matched real FAQ/Library content"}
+        />
+        <MetricCard
+          label="AI Spend (7d)"
+          value={overview ? formatCost(overview.ai_cost_7d_usd) : "..."}
+          subtitle={overview ? formatDelta(overview.ai_cost_7d_delta_pct) : undefined}
+        />
+        <MetricCard
+          label="Cost / Answer"
+          value={overview && overview.cost_per_answer_7d_usd !== null ? formatCost(overview.cost_per_answer_7d_usd) : overview ? "N/A" : "..."}
+          subtitle="Last 7 days"
+        />
+        <MetricCard
+          label="AI Latency P95"
+          value={overview && overview.p95_latency_7d_ms !== null ? fmtMs(overview.p95_latency_7d_ms) : overview ? "N/A" : "..."}
+          subtitle="Last 7 days"
         />
         <MetricCard
           label="Active Model"

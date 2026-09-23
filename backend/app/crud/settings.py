@@ -17,6 +17,7 @@ DEFAULTS: dict[str, str] = {
     keys.OFF_TOPIC_MESSAGE: env_settings.default_off_topic_message,
     keys.MAX_SITEMAP_URLS: str(env_settings.default_max_sitemap_urls),
     keys.GENERAL_KNOWLEDGE_ENABLED: "true",
+    keys.CHATBOT_KB_ENABLED: "true",
 }
 
 

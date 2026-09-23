@@ -22,14 +22,14 @@ export default function Pagination({
         <button
           onClick={() => onPageChange(page - 1)}
           disabled={page <= 1}
-          className="rounded border border-slate-300 px-3 py-1 disabled:opacity-40 dark:border-white/15 dark:text-slate-200"
+          className="rounded border border-slate-300 px-3 py-1 font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-transparent dark:border-white/15 dark:text-slate-200 dark:hover:bg-white/5 dark:disabled:text-slate-500 dark:disabled:hover:bg-transparent"
         >
           Previous
         </button>
         <button
           onClick={() => onPageChange(page + 1)}
           disabled={page >= totalPages}
-          className="rounded border border-slate-300 px-3 py-1 disabled:opacity-40 dark:border-white/15 dark:text-slate-200"
+          className="rounded border border-slate-300 px-3 py-1 font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-transparent dark:border-white/15 dark:text-slate-200 dark:hover:bg-white/5 dark:disabled:text-slate-500 dark:disabled:hover:bg-transparent"
         >
           Next
         </button>

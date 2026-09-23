@@ -7,6 +7,13 @@ class OverviewStats(BaseModel):
     chats_30d: int
     unique_sessions_7d: int
     answered_rate_7d: float  # 0-100, share of chat_7d messages that matched real content
+    chats_7d_delta_pct: float | None
+    answered_rate_delta_7d_points: float | None
+    ai_cost_7d_usd: float
+    ai_cost_7d_delta_pct: float | None
+    avg_latency_7d_ms: int | None
+    p95_latency_7d_ms: int | None
+    cost_per_answer_7d_usd: float | None
     unanswered_pending: int
     faq_total: int
     faq_published: int

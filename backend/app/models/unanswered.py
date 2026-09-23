@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -16,6 +16,8 @@ class UnansweredQuestion(Base):
         ForeignKey("categories.id", ondelete="SET NULL"), nullable=True
     )
     confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    occurrence_count: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    last_asked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     resulting_faq_id: Mapped[int | None] = mapped_column(

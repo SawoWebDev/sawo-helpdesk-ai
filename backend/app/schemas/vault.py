@@ -20,6 +20,7 @@ class VaultEntryUpdate(BaseModel):
     category_id: int | None = None
     tags: list[str] | None = None
     memory_enabled: bool | None = None
+    source_url: str | None = None
 
 
 class VaultEntryOut(VaultEntryBase):
@@ -44,3 +45,12 @@ class VaultSearchResult(BaseModel):
 class BulkMemoryToggleRequest(BaseModel):
     entry_ids: list[int]
     enabled: bool
+
+
+class ChatbotKbEntryOut(BaseModel):
+    id: int
+    title: str
+    content: str
+    category_path: str
+    memory_enabled: bool
+    source_url: str | None
