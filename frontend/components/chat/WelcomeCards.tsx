@@ -51,7 +51,15 @@ const SUGGESTIONS: Suggestion[] = [
     iconColor: "text-rose-700",
     title: "Product Knowledge",
     description: "Specs and details to answer client questions.",
-    prompt: "Where can I find detailed specs on our products?",
+    // Was "Where can I find detailed specs on our products?" — that text was
+    // also, word for word, an FAQ entry's question. An exact text match
+    // there scores a near-1.0 similarity, which always wins as "the" answer
+    // regardless of retrieval quality — so every click landed on one generic
+    // canned reply instead of ever searching the product content this card
+    // promises. Rephrased to ask something retrieval can actually answer
+    // well, so the first thing a new user tries demonstrates real product
+    // lookup rather than a dead end.
+    prompt: "What are all our sauna heater series and their specs?",
   },
   {
     icon: <ProcessesIcon />,

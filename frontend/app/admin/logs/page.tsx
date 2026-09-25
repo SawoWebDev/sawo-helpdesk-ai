@@ -1,6 +1,8 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import ReactMarkdown, { Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { apiFetch, apiGet, apiPost, ApiError } from "@/lib/api";
 import { useUnreadSessions } from "@/lib/useUnreadSessions";
 import Pagination from "@/components/admin/Pagination";
@@ -15,6 +17,8 @@ import {
   Copy,
   MoreVertical,
   Search,
+  ThumbsDown,
+  ThumbsUp,
   Trash2,
 } from "lucide-react";
 import PageHeader from "@/components/admin/PageHeader";
@@ -29,6 +33,7 @@ interface ChatLogRow {
   engine_used: string;
   session_id: string | null;
   ip_address: string | null;
+  rating: "up" | "down" | null;
   created_at: string;
 }
 
@@ -81,32 +86,44 @@ function highlightText(text: string, regex: RegExp | null): React.ReactNode {
   return parts.length ? parts : text;
 }
 
-const MARKDOWN_LINK_RE = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
-
-// Chat log answers are stored verbatim from the RAG pipeline, so a Markdown
-// link like "[About Us page](https://...)" shows up as literal bracket/paren
-// text here unless we render it — this thread view predates ReactMarkdown and
-// still needs the search-match <mark> highlighting from highlightText above,
-// so we parse links out by hand instead of pulling in a full Markdown
-// renderer, applying the search highlight to both plain text and link labels.
-function renderMessageText(text: string, regex: RegExp | null, linkClassName: string): React.ReactNode {
-  const linkRe = new RegExp(MARKDOWN_LINK_RE.source, "g");
-  const nodes: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  let key = 0;
-  while ((match = linkRe.exec(text)) !== null) {
-    if (match.index > lastIndex) nodes.push(highlightText(text.slice(lastIndex, match.index), regex));
-    const [full, label, url] = match;
-    nodes.push(
-      <a key={`link-${key++}`} href={url} target="_blank" rel="noopener noreferrer" className={linkClassName}>
-        {highlightText(label, regex)}
-      </a>
-    );
-    lastIndex = match.index + full.length;
+// Applies highlightText to every string leaf under a ReactMarkdown node's
+// children, leaving already-built elements (e.g. a nested <strong> or <a>
+// produced by one of the overrides below) untouched — each override only
+// ever needs to highlight its own direct text, since a nested override has
+// already highlighted its own subtree by the time it reaches its parent.
+function highlightChildren(children: React.ReactNode, regex: RegExp | null): React.ReactNode {
+  if (!regex) return children;
+  if (typeof children === "string") return highlightText(children, regex);
+  if (Array.isArray(children)) {
+    return children.map((child, i) => <Fragment key={i}>{highlightChildren(child, regex)}</Fragment>);
   }
-  if (lastIndex < text.length) nodes.push(highlightText(text.slice(lastIndex), regex));
-  return nodes;
+  return children;
+}
+
+// Chat log answers are stored as the same Markdown the main Chat UI renders
+// (links, bold, GFM tables) — this thread view used to hand-parse only
+// Markdown links, so bold/tables etc. showed up as literal "**"/"|" text.
+// Rendering through ReactMarkdown/remark-gfm (same libraries + same `.prose`
+// classes as components/chat/MessageBubble.tsx) gets exact formatting and
+// theme parity with the live chat widget for free. The element overrides
+// below exist only to keep the search-match highlighting working on top of
+// real Markdown structure instead of a flat string.
+function buildMessageMarkdownComponents(regex: RegExp | null, linkClassName: string): Components {
+  return {
+    p: ({ children }) => <p className="my-1">{highlightChildren(children, regex)}</p>,
+    strong: ({ children }) => <strong>{highlightChildren(children, regex)}</strong>,
+    em: ({ children }) => <em>{highlightChildren(children, regex)}</em>,
+    li: ({ children }) => <li>{highlightChildren(children, regex)}</li>,
+    td: ({ children }) => <td className="px-2 py-1">{highlightChildren(children, regex)}</td>,
+    th: ({ children }) => (
+      <th className="px-2 py-1 text-left">{highlightChildren(children, regex)}</th>
+    ),
+    a: ({ href, children }) => (
+      <a href={href} target="_blank" rel="noopener noreferrer" className={linkClassName}>
+        {highlightChildren(children, regex)}
+      </a>
+    ),
+  };
 }
 
 interface BubbleItem {
@@ -145,6 +162,7 @@ export default function LogsPage() {
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState<string | null>(null);
   const [dateTo, setDateTo] = useState<string | null>(null);
+  const [ratingFilter, setRatingFilter] = useState<"" | "up" | "down">("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -182,6 +200,7 @@ export default function LogsPage() {
     if (search) params.set("search", search);
     if (dateFrom) params.set("start_at", new Date(`${dateFrom}T00:00:00`).toISOString());
     if (dateTo) params.set("end_at", new Date(`${dateTo}T23:59:59.999`).toISOString());
+    if (ratingFilter) params.set("rating", ratingFilter);
     setLoading(true);
     apiGet<Paginated<SessionSummary>>(`/api/logs/sessions?${params.toString()}`)
       .then((data) => {
@@ -191,7 +210,7 @@ export default function LogsPage() {
       .finally(() => setLoading(false));
   }
 
-  useEffect(loadSessions, [page, search, dateFrom, dateTo]);
+  useEffect(loadSessions, [page, search, dateFrom, dateTo, ratingFilter]);
 
   useEffect(() => {
     function handleOutside(e: MouseEvent) {
@@ -345,6 +364,23 @@ export default function LogsPage() {
             setPage(1);
           }}
         />
+        <select
+          value={ratingFilter}
+          onChange={(e) => {
+            setPage(1);
+            setRatingFilter(e.target.value as "" | "up" | "down");
+          }}
+          className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
+        >
+          {/* The closed control's dark: classes only paint the collapsed box —
+              the native options popup ignores them and defaults to a white
+              background, so the light dark:text color above was unreadable
+              against it (see screenshot). Styling the <option>s directly is
+              what Chromium/Edge actually use to paint that popup. */}
+          <option value="" className="dark:bg-night-surface dark:text-slate-100">All feedback</option>
+          <option value="down" className="dark:bg-night-surface dark:text-slate-100">Rated not helpful</option>
+          <option value="up" className="dark:bg-night-surface dark:text-slate-100">Rated helpful</option>
+        </select>
       </div>
 
       <div className="flex min-h-0 flex-1 gap-4">
@@ -391,10 +427,12 @@ export default function LogsPage() {
             {!loading && sessions.length === 0 && (
               <div className="p-6 text-center">
                 <p className="font-medium text-slate-600 dark:text-slate-300">
-                  {search || dateFrom ? "No conversations match these filters." : "No conversations yet."}
+                  {search || dateFrom || ratingFilter ? "No conversations match these filters." : "No conversations yet."}
                 </p>
                 <p className="mt-1 text-sm text-slate-400 dark:text-slate-500">
-                  {search || dateFrom ? "Try a different date range or search term." : "Sessions appear here as visitors chat with the bot."}
+                  {search || dateFrom || ratingFilter
+                    ? "Try a different date range, search term, or feedback filter."
+                    : "Sessions appear here as visitors chat with the bot."}
                 </p>
               </div>
             )}
@@ -593,22 +631,56 @@ export default function LogsPage() {
                           <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
                             {isUser ? "Visitor" : "Bot"}
                           </p>
+                          {/* Same .glass/.glass-soft/.glass-edge treatment as the live chat
+                              widget (see components/chat/MessageBubble.tsx) — those classes
+                              are dark-mode-only (see app/globals.css), so light mode here is
+                              untouched and keeps its existing flat colors. */}
                           <div
-                            className={`whitespace-pre-wrap rounded-xl px-3 py-2 text-left text-sm shadow-sm ${
+                            className={`relative rounded-xl border px-3 py-2 text-left text-sm shadow-sm ${
                               isUser
-                                ? "rounded-tl-sm border-l-4 border-sawo bg-sawo-bg text-slate-800 dark:border-sawo-light dark:bg-white/5 dark:text-slate-100"
-                                : "rounded-tr-sm bg-sawo text-white dark:bg-sawo-dark"
+                                ? "glass glass-user glass-soft glass-edge glass-edge-soft rounded-tl-sm border-l-4 border-transparent border-l-sawo bg-sawo-bg text-slate-800 dark:text-slate-100"
+                                : "glass glass-soft glass-edge glass-edge-soft rounded-tr-sm border-transparent bg-sawo text-white"
                             }`}
                           >
-                            {renderMessageText(
-                              item.text || "",
-                              searchRegex,
-                              isUser
-                                ? "font-semibold underline underline-offset-2 text-sawo-dark dark:text-sawo-light"
-                                : "font-semibold underline underline-offset-2 text-white"
-                            )}
+                            <div className="prose prose-sm max-w-none text-inherit [&_*:not(a)]:text-inherit prose-p:my-1 prose-table:my-2 prose-th:px-2 prose-th:py-1 prose-th:text-left prose-td:px-2 prose-td:py-1">
+                              <div className="overflow-x-auto">
+                                <ReactMarkdown
+                                  remarkPlugins={[remarkGfm]}
+                                  components={buildMessageMarkdownComponents(
+                                    searchRegex,
+                                    isUser
+                                      ? "font-semibold underline underline-offset-2 text-sawo-dark dark:text-sawo-light"
+                                      : "font-semibold underline underline-offset-2 text-white"
+                                  )}
+                                >
+                                  {item.text || ""}
+                                </ReactMarkdown>
+                              </div>
+                            </div>
                           </div>
-                          <p className="mt-0.5 text-[10px] text-slate-400 dark:text-slate-500">{formatTime(item.createdAt!)}</p>
+                          <p
+                            className={`mt-0.5 flex items-center gap-1.5 text-[10px] text-slate-400 dark:text-slate-500 ${
+                              isUser ? "justify-start" : "justify-end"
+                            }`}
+                          >
+                            {!isUser && log.rating && (
+                              <span
+                                title={log.rating === "up" ? "Rated helpful" : "Rated not helpful"}
+                                className={`inline-flex items-center ${
+                                  log.rating === "up"
+                                    ? "text-sawo dark:text-sawo-light"
+                                    : "text-amber-600 dark:text-amber-400"
+                                }`}
+                              >
+                                {log.rating === "up" ? (
+                                  <ThumbsUp size={11} strokeWidth={2.25} fill="currentColor" />
+                                ) : (
+                                  <ThumbsDown size={11} strokeWidth={2.25} fill="currentColor" />
+                                )}
+                              </span>
+                            )}
+                            {formatTime(item.createdAt!)}
+                          </p>
                           {!isUser && hasMatch && (
                             <button
                               onClick={() => handleSaveAsFaq(log)}

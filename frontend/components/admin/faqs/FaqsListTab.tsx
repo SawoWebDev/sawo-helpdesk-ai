@@ -67,6 +67,21 @@ export default function FaqsListTab() {
 
   async function handleToggleStatus(faq: FAQ) {
     const nextStatus = faq.status === "published" ? "draft" : "published";
+    // A chat_auto draft is unverified AI output -- it reads as a complete,
+    // well-formatted answer, which is exactly what makes a wrong one easy to
+    // approve on a skim (an auto-saved answer once cited the wrong product
+    // page and got published this way). Publishing is the one-click step
+    // that turns it into trusted content the chatbot cites as fact, so it
+    // gets a confirmation the other, human-authored sources do not need.
+    if (nextStatus === "published" && faq.source === "chat_auto") {
+      const ok = confirm(
+        "This answer was auto-saved from a chat reply and has not been reviewed. " +
+          "Before publishing, check every fact and link against the source page " +
+          "it was drawn from -- a wrong answer here gets cited by the chatbot as " +
+          "verified fact.\n\nPublish anyway?"
+      );
+      if (!ok) return;
+    }
     await apiPut(`/api/faqs/${faq.id}`, { status: nextStatus });
     await load();
   }
@@ -230,6 +245,14 @@ export default function FaqsListTab() {
                   >
                     {faq.status}
                   </span>
+                  {faq.status === "draft" && faq.source === "chat_auto" && (
+                    <span
+                      title="AI-generated from a chat reply, not yet checked by a person -- verify it against the source before publishing"
+                      className="ml-1.5 rounded px-2 py-0.5 text-xs font-medium bg-rose-50 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300"
+                    >
+                      Needs review
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-2 text-right">
                   <button onClick={() => handleToggleStatus(faq)} className="mr-3 text-sawo-dark dark:text-sawo-light">

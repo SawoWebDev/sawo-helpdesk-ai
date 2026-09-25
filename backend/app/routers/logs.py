@@ -65,17 +65,19 @@ async def list_sessions(
     search: str | None = Query(None, description="Matches question or answer text (case-insensitive)"),
     start_at: datetime | None = Query(None, description="Only sessions with activity at or after this timestamp"),
     end_at: datetime | None = Query(None, description="Only sessions with activity at or before this timestamp"),
+    rating: str | None = Query(None, pattern="^(up|down)$", description="Only sessions with at least one message rated this way"),
     db: AsyncSession = Depends(get_db),
 ):
     """Chat Logs grouped by session — one row per conversation rather than
     per message. Rows with no session_id (pre-dating this feature) are
     excluded here; they're still visible via the flat GET / above.
 
-    Search and date range each independently narrow which SESSIONS qualify
-    (a session qualifies if ANY of its messages matches), but the returned
-    message_count/first_at/last_at/cost are always computed over that
-    session's full history — not just the matching rows. A session with one
-    match from a month ago still reports its true, current message count."""
+    Search, date range, and rating each independently narrow which SESSIONS
+    qualify (a session qualifies if ANY of its messages matches), but the
+    returned message_count/first_at/last_at/cost are always computed over
+    that session's full history — not just the matching rows. A session with
+    one match from a month ago still reports its true, current message
+    count."""
     if start_at is not None and end_at is not None and start_at > end_at:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="start_at must be before end_at"
@@ -89,6 +91,8 @@ async def list_sessions(
         qualifying = qualifying.where(ChatLog.created_at >= start_at)
     if end_at is not None:
         qualifying = qualifying.where(ChatLog.created_at <= end_at)
+    if rating is not None:
+        qualifying = qualifying.where(ChatLog.rating == rating)
     qualifying_subq = qualifying.subquery()
 
     total = (await db.execute(select(func.count()).select_from(qualifying_subq))).scalar_one()

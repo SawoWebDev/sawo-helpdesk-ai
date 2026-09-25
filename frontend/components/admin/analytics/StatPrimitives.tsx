@@ -1,6 +1,7 @@
 "use client";
 
 import { ReactNode } from "react";
+import InfoTooltip from "@/components/admin/InfoTooltip";
 
 type MetricTone = "blue" | "emerald" | "amber" | "rose" | "violet" | "brand";
 
@@ -19,19 +20,25 @@ export function MetricCard({
   subtitle,
   icon,
   tone = "brand",
+  hint,
 }: {
   label: string;
   value: ReactNode;
   subtitle?: ReactNode;
   icon?: ReactNode;
   tone?: MetricTone;
+  /** Plain-language explanation of the metric, shown in a hover/tap tooltip. */
+  hint?: string;
 }) {
   const classes = metricToneClasses[tone];
   return (
     <div className={`group relative overflow-hidden rounded-lg border border-slate-200 bg-gradient-to-br ${classes.wash} p-4 shadow-sm transition-shadow hover:shadow-md dark:border-white/10`}>
       <span className={`absolute inset-x-0 top-0 h-0.5 ${classes.accent}`} aria-hidden />
       <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</p>
+        <p className="flex min-w-0 items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          <span className="truncate">{label}</span>
+          {hint && <InfoTooltip text={hint} label={label} />}
+        </p>
         {icon && <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg ${classes.icon}`}>{icon}</span>}
       </div>
       <p className="mt-2 text-2xl font-semibold tabular-nums text-slate-800 dark:text-slate-100">{value}</p>
@@ -44,15 +51,21 @@ export function Card({
   title,
   action,
   children,
+  hint,
 }: {
   title: ReactNode;
   action?: ReactNode;
   children: ReactNode;
+  /** Plain-language explanation of the panel, shown in a hover/tap tooltip. */
+  hint?: string;
 }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md dark:border-white/10 dark:bg-night-surface">
       <div className="mb-3 flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">{title}</h3>
+        <h3 className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-200">
+          <span className="truncate">{title}</span>
+          {hint && <InfoTooltip text={hint} label={typeof title === "string" ? title : undefined} />}
+        </h3>
         {action}
       </div>
       {children}

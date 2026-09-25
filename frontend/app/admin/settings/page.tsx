@@ -5,6 +5,7 @@ import Link from "next/link";
 import { apiDelete, apiGet, apiPost, downloadFile, getToken, ApiError } from "@/lib/api";
 import OpenRouterModelSelect from "@/components/admin/OpenRouterModelSelect";
 import PageHeader from "@/components/admin/PageHeader";
+import { ChevronRight } from "lucide-react";
 
 // Matches the backend's settings.py MASK constant — the API never returns
 // the real key, only this sentinel when one is saved.
@@ -427,7 +428,10 @@ export default function SettingsPage() {
                 Per-model spend, request counts, and daily breakdowns live on the Analytics page.
               </span>
             </span>
-            <span className="shrink-0 font-medium text-sawo-dark dark:text-sawo-light">View Analytics →</span>
+            <span className="flex shrink-0 items-center gap-0.5 font-medium text-sawo-dark dark:text-sawo-light">
+              See more
+              <ChevronRight size={15} aria-hidden />
+            </span>
           </Link>
         </>
       )}

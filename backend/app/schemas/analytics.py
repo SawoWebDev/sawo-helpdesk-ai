@@ -14,6 +14,9 @@ class OverviewStats(BaseModel):
     avg_latency_7d_ms: int | None
     p95_latency_7d_ms: int | None
     cost_per_answer_7d_usd: float | None
+    satisfaction_rate_7d: float | None  # 0-100, share of RATED chat_7d messages rated "up"
+    rated_total_7d: int
+    satisfaction_rate_delta_7d_points: float | None
     unanswered_pending: int
     faq_total: int
     faq_published: int

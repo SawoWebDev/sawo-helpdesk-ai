@@ -18,9 +18,11 @@ import {
   Bot,
   CircleHelp,
   Clock3,
+  ChevronRight,
   Gauge,
   MessagesSquare,
   Sparkles,
+  ThumbsUp,
   Users,
   WalletCards,
 } from "lucide-react";
@@ -38,6 +40,9 @@ interface OverviewStats {
   avg_latency_7d_ms: number | null;
   p95_latency_7d_ms: number | null;
   cost_per_answer_7d_usd: number | null;
+  satisfaction_rate_7d: number | null;
+  rated_total_7d: number;
+  satisfaction_rate_delta_7d_points: number | null;
   unanswered_pending: number;
   faq_total: number;
   faq_published: number;
@@ -304,9 +309,10 @@ export default function AnalyticsPage() {
       </div>
 
       {/* Core metrics */}
-      <div className="mb-4 grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className="mb-4 grid grid-cols-2 gap-4 md:grid-cols-5">
         <MetricCard
           label="Chats (7d)"
+          hint="How many questions people asked the assistant in the last 7 days. Higher means the chat is getting more use."
           value={overview ? overview.chats_7d.toLocaleString() : "..."}
           icon={<MessagesSquare size={17} />}
           tone="blue"
@@ -314,19 +320,35 @@ export default function AnalyticsPage() {
         />
         <MetricCard
           label="Answered Rate (7d)"
+          hint="Out of every 100 questions asked, how many the assistant answered using your own approved content. Higher is better, because it means fewer people leave without an answer."
           value={overview ? `${overview.answered_rate_7d}%` : "..."}
           icon={<BadgeCheck size={17} />}
           tone="emerald"
           subtitle={overview ? `${formatDelta(overview.answered_rate_delta_7d_points, " pts")} · matched real content` : "Matched real FAQ/Library content"}
         />
-        <MetricCard label="Unanswered Pending" value={overview ? overview.unanswered_pending.toLocaleString() : "..."} subtitle="Awaiting agent review" icon={<CircleHelp size={17} />} tone="amber" />
-        <MetricCard label="Unique Sessions (7d)" value={overview ? overview.unique_sessions_7d.toLocaleString() : "..."} subtitle="Distinct visitors" icon={<Users size={17} />} tone="violet" />
+        <MetricCard label="Unanswered Pending" hint="Questions the assistant could not answer, still waiting for someone on your team to write an answer. Clearing these is the fastest way to improve the chat." value={overview ? overview.unanswered_pending.toLocaleString() : "..."} subtitle="Awaiting agent review" icon={<CircleHelp size={17} />} tone="amber" />
+        <MetricCard label="Unique Sessions (7d)" hint="How many separate people used the chat in the last 7 days. One person asking five questions counts once here, so compare it with Chats to see how much each visitor asks." value={overview ? overview.unique_sessions_7d.toLocaleString() : "..."} subtitle="Distinct visitors" icon={<Users size={17} />} tone="violet" />
+        <MetricCard
+          label="Satisfaction (7d)"
+          hint="Out of the people who bothered to rate an answer with a thumbs up or down in the last 7 days, how many rated it helpful. Only counts messages that got a rating, so a low count of ratings means this number isn't fully reliable yet."
+          value={overview ? (overview.satisfaction_rate_7d !== null ? `${overview.satisfaction_rate_7d}%` : "—") : "..."}
+          icon={<ThumbsUp size={17} />}
+          tone="brand"
+          subtitle={
+            overview
+              ? overview.rated_total_7d > 0
+                ? `${formatDelta(overview.satisfaction_rate_delta_7d_points, " pts")} · ${overview.rated_total_7d} rated`
+                : "No feedback rated yet"
+              : undefined
+          }
+        />
       </div>
 
       {/* AI engine metrics */}
       <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
         <MetricCard
           label="Active Model"
+          hint="The AI model currently answering your visitors. Different models cost different amounts and vary in speed and quality; you can change it in Settings."
           value={
             overview ? (
               <span className="flex items-center gap-1.5 truncate text-base" title={overview.active_model}>
@@ -341,9 +363,10 @@ export default function AnalyticsPage() {
           icon={<Bot size={17} />}
           tone="violet"
         />
-        <MetricCard label="AI Cost Today" value={overview ? formatCost(overview.ai_cost_today_usd) : "..."} subtitle="Live spend" icon={<WalletCards size={17} />} tone="blue" />
+        <MetricCard label="AI Cost Today" hint="What the AI has cost you so far today, in US dollars. It keeps climbing until midnight, then starts again at zero." value={overview ? formatCost(overview.ai_cost_today_usd) : "..."} subtitle="Live spend" icon={<WalletCards size={17} />} tone="blue" />
         <MetricCard
           label="AI Cost (7d)"
+          hint="What the AI cost over the last 7 days, and whether that is up or down compared with the 7 days before it."
           value={overview ? formatCost(overview.ai_cost_7d_usd) : "..."}
           subtitle={overview ? <span className={`rounded px-1.5 py-0.5 font-medium ${deltaClass(overview.ai_cost_7d_delta_pct, true)}`}>{formatDelta(overview.ai_cost_7d_delta_pct)}</span> : undefined}
           icon={<Activity size={17} />}
@@ -351,6 +374,7 @@ export default function AnalyticsPage() {
         />
         <MetricCard
           label="Cost / Answer"
+          hint="The average price of one answer over the last 7 days. A few cents is normal. A cheaper model or a better knowledge base brings it down."
           value={overview && overview.cost_per_answer_7d_usd !== null ? formatCost(overview.cost_per_answer_7d_usd) : overview ? "N/A" : "..."}
           subtitle="Last 7 days"
           icon={<WalletCards size={17} />}
@@ -358,14 +382,16 @@ export default function AnalyticsPage() {
         />
         <MetricCard
           label="AI Latency P95"
+          hint="How long people wait for a reply, measured at the slower end: 95 out of 100 answers arrive faster than this. Lower feels snappier."
           value={overview && overview.p95_latency_7d_ms !== null ? fmtMs(overview.p95_latency_7d_ms) : overview ? "N/A" : "..."}
           subtitle={overview && overview.avg_latency_7d_ms !== null ? `${fmtMs(overview.avg_latency_7d_ms)} average` : "Last 7 days"}
           icon={<Clock3 size={17} />}
           tone="amber"
         />
-        <MetricCard label="FAQ Entries" value={overview ? overview.faq_total.toLocaleString() : "..."} subtitle={overview ? `${overview.faq_published} published` : undefined} icon={<BookOpen size={17} />} tone="brand" />
+        <MetricCard label="FAQ Entries" hint="All the questions and answers stored in your knowledge base, with how many are live for visitors. Drafts are counted in the total but are not used in replies." value={overview ? overview.faq_total.toLocaleString() : "..."} subtitle={overview ? `${overview.faq_published} published` : undefined} icon={<BookOpen size={17} />} tone="brand" />
         <MetricCard
           label="OpenRouter Balance"
+          hint="The prepaid credit left in your OpenRouter account, which pays for the AI. When it runs out the chat stops answering, so top it up before it hits zero."
           value={
             !orBalance
               ? "..."
@@ -377,8 +403,9 @@ export default function AnalyticsPage() {
           }
           subtitle={
             !orBalance ? undefined : !orBalance.configured ? (
-              <a href="/admin/settings" className="text-sawo-dark hover:underline dark:text-sawo-light">
-                Add a management key →
+              <a href="/admin/settings" className="inline-flex items-center gap-0.5 text-sawo-dark hover:underline dark:text-sawo-light">
+                Add a management key
+                <ChevronRight size={13} aria-hidden />
               </a>
             ) : orBalance.error ? (
               orBalance.error
@@ -392,7 +419,10 @@ export default function AnalyticsPage() {
       </div>
 
       {/* Chat volume trend */}
-      <Card title="Chat Volume">
+      <Card
+        title="Chat Volume"
+        hint="Day-by-day view of how busy the chat is: total questions asked, and how many different people asked them."
+      >
         {chatTrend ? (
           <TrendChart
             data={chatTrend.map((d) => ({ day: d.day, values: { messages: d.messages, sessions: d.sessions } }))}
@@ -408,7 +438,10 @@ export default function AnalyticsPage() {
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Answer quality */}
-        <Card title="Answer Quality">
+        <Card
+          title="Answer Quality"
+          hint="How well the assistant is doing. The top split shows answered versus not answered; below it, confidence is how sure the assistant was. Lots of low-confidence answers means your knowledge base needs more detail."
+        >
           <div className="mb-3">
             <BreakdownList
               items={[
@@ -443,7 +476,10 @@ export default function AnalyticsPage() {
         </Card>
 
         {/* Unanswered by category */}
-        <Card title="Unanswered Questions by Category">
+        <Card
+          title="Unanswered Questions by Category"
+          hint="Which topics people ask about that you have no answer for. The longest bars point to the biggest gaps in your knowledge base."
+        >
           {categories ? (
             <BreakdownList
               items={categories.slice(0, 8).map((c) => ({
@@ -462,7 +498,10 @@ export default function AnalyticsPage() {
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Content growth */}
-        <Card title="Content Growth">
+        <Card
+          title="Content Growth"
+          hint="How many knowledge base entries were added each day, coloured by where they came from: typed in by hand, imported, or generated from unanswered questions."
+        >
           {contentGrowth ? (
             <StackedBarChart
               data={contentGrowth.map((d) => ({ day: d.day, total: d.total, values: d.by_source }))}
@@ -474,7 +513,10 @@ export default function AnalyticsPage() {
         </Card>
 
         {/* FAQ sources */}
-        <Card title="FAQ Entries by Source">
+        <Card
+          title="FAQ Entries by Source"
+          hint="Where your knowledge base content came from overall, so you can see how much was written by your team versus imported or AI-assisted."
+        >
           {faqSources ? (
             <BreakdownList
               items={faqSources.map((s) => ({
@@ -494,9 +536,11 @@ export default function AnalyticsPage() {
       <div className="mt-4">
         <Card
           title="AI Engine Usage by Model"
+          hint="A per-model bill: how many times each AI model was used and what it cost, both today and since the start. Useful for spotting an expensive model."
           action={
-            <a href="/admin/settings" className="text-xs font-medium text-sawo-dark hover:underline dark:text-sawo-light">
-              API key &amp; model settings →
+            <a href="/admin/settings" className="flex shrink-0 items-center gap-0.5 text-xs font-medium text-sawo-dark hover:underline dark:text-sawo-light">
+              API key &amp; model settings
+              <ChevronRight size={14} aria-hidden />
             </a>
           }
         >
@@ -609,7 +653,10 @@ export default function AnalyticsPage() {
 
       {/* Token flow (input vs. output), account-wide by model */}
       <div className="mt-4">
-        <Card title="Token Flow (Input vs. Output)">
+        <Card
+          title="Token Flow (Input vs. Output)"
+          hint="Tokens are the small pieces of text the AI is billed on. Input is what gets sent to the AI (the question plus your matching content); output is the reply it writes back. Long inputs are the usual reason costs creep up."
+        >
           {modelUsage && modelUsage.length > 0 ? (
             <div className="flex flex-col gap-1.5">
               {modelUsage.map((m) => {
@@ -655,6 +702,7 @@ export default function AnalyticsPage() {
       <div className="mt-4">
         <Card
           title="Per-Call Detail"
+          hint="A line-by-line log of every request sent to the AI, with the time, model, speed and cost. Mostly for digging into one specific slow or expensive answer."
           action={
             <select
               value={callsModelFilter}
@@ -728,7 +776,10 @@ export default function AnalyticsPage() {
 
       {/* AI usage by process */}
       <div className="mt-4">
-        <Card title="AI Usage by Process">
+        <Card
+          title="AI Usage by Process"
+          hint="Which parts of the system are spending your AI budget: answering chats, suggesting answers, tagging content, and so on."
+        >
           {featureUsage ? (
             <BreakdownList
               items={featureUsage.map((f) => ({

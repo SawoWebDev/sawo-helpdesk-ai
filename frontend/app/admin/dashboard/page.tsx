@@ -9,6 +9,8 @@ import TrendChart from "@/components/admin/analytics/TrendChart";
 import { fmtMs } from "@/components/admin/logs/format";
 import { ModelIcon } from "@/lib/modelProviders";
 import PageHeader from "@/components/admin/PageHeader";
+import InfoTooltip from "@/components/admin/InfoTooltip";
+import { ChevronRight } from "lucide-react";
 
 interface Paginated<T = unknown> {
   items: T[];
@@ -85,10 +87,14 @@ function formatHourLabel(hour: string): string {
   return `${h12} ${period}`;
 }
 
-function ViewAnalyticsLink() {
+function SeeMoreLink({ href }: { href: string }) {
   return (
-    <Link href="/admin/analytics" className="text-xs font-medium text-sawo-dark hover:underline dark:text-sawo-light">
-      View full analytics →
+    <Link
+      href={href}
+      className="flex shrink-0 items-center gap-0.5 text-xs font-medium text-sawo-dark hover:underline dark:text-sawo-light"
+    >
+      See more
+      <ChevronRight size={14} aria-hidden />
     </Link>
   );
 }
@@ -130,14 +136,26 @@ export default function DashboardPage() {
           href="/admin/faqs"
           className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm hover:border-sawo/40 dark:border-white/10 dark:bg-night-surface dark:hover:border-sawo-light/50"
         >
-          <p className="text-sm text-slate-500 dark:text-slate-400">Knowledge Base Entries</p>
+          <p className="flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400">
+            <span className="truncate">Knowledge Base Entries</span>
+            <InfoTooltip
+              label="Knowledge Base Entries"
+              text="How many questions and answers the assistant can pull from. The more good entries you add here, the more questions it can answer on its own."
+            />
+          </p>
           <p className="mt-1 text-3xl font-semibold text-slate-800 dark:text-slate-100">{faqCount ?? "..."}</p>
         </Link>
         <Link
           href="/admin/faqs?tab=unanswered"
           className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm hover:border-sawo/40 dark:border-white/10 dark:bg-night-surface dark:hover:border-sawo-light/50"
         >
-          <p className="text-sm text-slate-500 dark:text-slate-400">Pending Unanswered Questions</p>
+          <p className="flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400">
+            <span className="truncate">Pending Unanswered Questions</span>
+            <InfoTooltip
+              label="Pending Unanswered Questions"
+              text="Questions visitors asked that the assistant could not answer well. Each one is waiting for someone to write an answer, so the list doubles as a to-do list for growing your knowledge base."
+            />
+          </p>
           <p className="mt-1 text-3xl font-semibold text-slate-800 dark:text-slate-100">{pendingCount ?? "..."}</p>
         </Link>
       </div>
@@ -145,31 +163,37 @@ export default function DashboardPage() {
       <div className="mb-4 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
         <MetricCard
           label="Chats (7d)"
+          hint="How many questions people asked the assistant in the last 7 days. Higher means the chat is getting more use."
           value={overview ? overview.chats_7d.toLocaleString() : "..."}
           subtitle={overview ? `${overview.chats_today.toLocaleString()} today · ${formatDelta(overview.chats_7d_delta_pct)}` : undefined}
         />
         <MetricCard
           label="Answered Rate (7d)"
+          hint="Out of every 100 questions asked, how many the assistant answered using your own approved content. Higher is better, because it means fewer people leave without an answer."
           value={overview ? `${overview.answered_rate_7d}%` : "..."}
           subtitle={overview ? formatDelta(overview.answered_rate_delta_7d_points, " pts") : "Matched real FAQ/Library content"}
         />
         <MetricCard
           label="AI Spend (7d)"
+          hint="What the AI cost you in the last 7 days, in US dollars. You are charged per question the AI handles, so this rises as the chat gets busier."
           value={overview ? formatCost(overview.ai_cost_7d_usd) : "..."}
           subtitle={overview ? formatDelta(overview.ai_cost_7d_delta_pct) : undefined}
         />
         <MetricCard
           label="Cost / Answer"
+          hint="The average price of one answer over the last 7 days. Use it to sanity-check value: a few cents per answer is normal, and a cheaper model or better knowledge base brings it down."
           value={overview && overview.cost_per_answer_7d_usd !== null ? formatCost(overview.cost_per_answer_7d_usd) : overview ? "N/A" : "..."}
           subtitle="Last 7 days"
         />
         <MetricCard
           label="AI Latency P95"
+          hint="How long people wait for a reply, taking the slower end of the range: 95 out of 100 answers arrive faster than this. Lower feels snappier."
           value={overview && overview.p95_latency_7d_ms !== null ? fmtMs(overview.p95_latency_7d_ms) : overview ? "N/A" : "..."}
           subtitle="Last 7 days"
         />
         <MetricCard
           label="Active Model"
+          hint="The AI model currently answering your visitors. Different models cost different amounts and vary in speed and quality; you can change it in Settings."
           value={
             overview ? (
               <span className="flex items-center gap-1.5 truncate text-base" title={overview.active_model}>
@@ -187,7 +211,8 @@ export default function DashboardPage() {
       <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card
           title="Peak Hours"
-          action={<ViewAnalyticsLink />}
+          hint="Which times of day people use the chat most, over the last 30 days. Handy for knowing when to have staff on hand. Times are shown in UTC, not your local time."
+          action={<SeeMoreLink href="/admin/analytics" />}
         >
           {hourly ? (
             <>
@@ -210,7 +235,8 @@ export default function DashboardPage() {
 
         <Card
           title="Daily AI Spend"
-          action={<ViewAnalyticsLink />}
+          hint="What the AI cost each day for the last 30 days. Spikes usually mean a busy day or a switch to a pricier model."
+          action={<SeeMoreLink href="/admin/analytics" />}
         >
           {dailySpend ? (
             <>
@@ -232,10 +258,9 @@ export default function DashboardPage() {
       <div className="mt-4">
         <Card
           title="Recent Unanswered Questions"
+          hint="The newest questions the assistant could not answer. Reading these tells you exactly what content is missing from your knowledge base."
           action={
-            <Link href="/admin/faqs?tab=unanswered" className="text-xs font-medium text-sawo-dark hover:underline dark:text-sawo-light">
-              Review all →
-            </Link>
+            <SeeMoreLink href="/admin/faqs?tab=unanswered" />
           }
         >
           {recentUnanswered ? (

@@ -2,7 +2,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.base import AIEngineError
@@ -36,9 +36,103 @@ REFUSAL_SENTINEL = "NOT_FOUND"
 # here keeps that cost bounded regardless of how high top_k is configured.
 GENERATION_CONTEXT_LIMIT = 5
 
-# Floating-point tolerance for "is this url's similarity score the same as
-# the best one" when deciding which reference links to show (see
-# answer_question below) — not a tunable relevance knob, just slack for
+# An "list every model in this range" question is the one case where the cap
+# above is actively wrong: answering it *completely* needs every matching
+# variant in context at once, and five chunks covers only two or three of
+# them, so the model silently answers about a fraction of the family and
+# sounds confident doing it. These questions get the full retrieved set (up
+# to top_k, bounded here) instead.
+ENUMERATION_CONTEXT_LIMIT = 12
+
+# Cues that the question wants a complete set rather than one fact. Kept
+# deliberately narrow: widening the context costs tokens and latency on
+# every question that trips it.
+_ENUMERATION_RE = re.compile(
+    r"\b("
+    r"list(?:\s+(?:them|these|those|all|out))?"
+    r"|all (?:the |of the |their |your )?[a-z]+"
+    r"|every (?:model|variant|option|version|type|product|one)"
+    r"|(?:full|complete|entire|whole) (?:range|lineup|list|series|set)"
+    r"|how many (?:model|variant|option|version|type|product)"
+    r"|(?:what|which)[^.?!]{0,40}?(?:models|variants|options|versions|types|products|sizes)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Overview/hub pages ("…/tower-series/") name every member of a product
+# family. That is exactly what an enumeration question needs and exactly
+# what similarity search buries: each individual product page answers the
+# query just as closely and there are a dozen of them, so the one page that
+# lists the whole family never makes the cut. When the question names a
+# family, its overview page is pinned into the context rather than left to
+# win a ranking contest it cannot win.
+HUB_URL_SUFFIXES = ("-series", "-range", "-collection")
+MAX_PINNED_HUB_CHUNKS = 2
+
+# Most product families have no overview page at all — their variants simply
+# sit at sibling URLs ("/aries-corner-nb/", "/aries-round-ns/"). Retrieval
+# returns a handful of them and the model then answers as though that
+# handful were the whole family. Pinning siblings by URL slug makes the set
+# complete rather than whatever scored best.
+MAX_PINNED_FAMILY_CHUNKS = 6
+
+# At most this many source links are shown under an answer.
+MAX_REFERENCE_URLS = 3
+
+# Question words that would match a hub URL by accident.
+_HUB_TOKEN_STOPWORDS = {
+    "what", "which", "where", "when", "does", "have", "with", "from", "they",
+    "them", "this", "that", "these", "those", "your", "list", "every", "about",
+    "there", "their", "tell", "show", "give", "spec", "specs", "please", "would",
+    "could", "many", "much", "also", "into", "over", "under", "between",
+}
+_HUB_TOKEN_RE = re.compile(r"[a-z0-9]{4,}")
+
+
+def _is_enumeration_question(question: str) -> bool:
+    return bool(_ENUMERATION_RE.search(question))
+
+
+def _hub_tokens(question: str) -> list[str]:
+    seen: list[str] = []
+    for word in _HUB_TOKEN_RE.findall(question.lower()):
+        if word not in _HUB_TOKEN_STOPWORDS and word not in seen:
+            seen.append(word)
+    return seen
+
+
+# Matches a "flat" product-style URL -- a single root-level slug, no nested
+# path ("https://www.sawo.com/aries-round-nb/") -- as opposed to an overview
+# page ("/finnish-sauna/sauna-heaters/tower-series/") or a manual PDF under
+# /wp-content/. Every product family in this KB uses this same flat shape,
+# and their pages are templated closely enough (near-identical feature-bullet
+# wording) that similarity search regularly ranks one family's product page
+# almost as well as another's for a question naming only one of them.
+_FLAT_PRODUCT_URL_RE = re.compile(r"^https?://[^/]+/([a-z0-9]+)-[a-z0-9-]*/?$")
+
+
+def _is_off_family_product_page(source_url: str | None, family_tokens: list[str]) -> bool:
+    """True when `source_url` looks like another product's own page and
+    doesn't belong to any of `family_tokens` -- see _FLAT_PRODUCT_URL_RE.
+
+    Used only once a question has been pinned to a specific family (hub
+    pinning found a match): at that point, a same-shaped page for a
+    different family reaching the context via ordinary similarity search
+    is a known failure mode (confirmed live -- Aries product pages in a
+    Tower-only enumeration's context, crowding out real Tower variants and
+    the answer's own completeness), not a second family the question
+    actually asked about.
+    """
+    if not source_url or not family_tokens:
+        return False
+    match = _FLAT_PRODUCT_URL_RE.match(source_url.lower())
+    if not match:
+        return False
+    return match.group(1) not in family_tokens
+
+# Floating-point tolerance for "is this image's similarity score the same as
+# the best one" when deciding which images to show (see answer_question
+# below; reference links no longer use this rule) — not a tunable relevance knob, just slack for
 # binary float representation, since the compared values come from the same
 # query round and should otherwise be exactly equal.
 LINK_SIMILARITY_EPSILON = 1e-9
@@ -63,6 +157,16 @@ SYSTEM_PROMPT = (
     "resolve a pronoun like 'it' or 'that', or to build on what was already established. "
     "If the current question is unrelated to that earlier conversation, ignore it entirely "
     "and answer independently using only the context below. "
+    "When the question asks for ALL of something — every model in a series, the "
+    "full range, a complete list — first point to the overview page for that family "
+    "if one appears in the context, then list every matching item the context "
+    "actually contains. Group them clearly and keep each item's details with it. "
+    "If the context only covers part of the family, say so plainly and point to the "
+    "overview page for the rest, rather than presenting a partial list as complete. "
+    "Never state where a product is documented, or which page or manual covers it, "
+    "unless the context explicitly ties that product to that page. If you cannot "
+    "tell from the context where something is documented, say you don't know rather "
+    "than naming a page that merely appears nearby in the context. "
     "Whenever you mention a URL from the context, never write the raw URL out in the "
     "sentence (e.g. not 'the Dragonfire Series page (https://example.com/dragonfire/)'). "
     "Instead format it as a Markdown inline link with short, descriptive text as the "
@@ -209,6 +313,69 @@ class RagResult:
     promotion: PromotionPayload | None = None
 
 
+async def _find_hub_entries(
+    db: AsyncSession, question: str, excluded_category_ids: set[int] | None = None
+) -> list[VaultEntry]:
+    """Library chunks for a product-family overview page named by the question.
+
+    Matched on the URL rather than on content similarity: a family's overview
+    page is identifiable by its slug ("/tower-series/") and is precisely the
+    page that similarity search cannot surface, because every individual
+    product page in that family scores at least as well against the question.
+    """
+    tokens = _hub_tokens(question)
+    if not tokens:
+        return []
+
+    clauses = []
+    for token in tokens:
+        for suffix in HUB_URL_SUFFIXES:
+            clauses.append(VaultEntry.source_url.like(f"%/{token}{suffix}/%"))
+            clauses.append(VaultEntry.source_url.like(f"%/{token}{suffix}"))
+
+    result = await db.execute(
+        select(VaultEntry)
+        .where(VaultEntry.memory_enabled.is_(True), or_(*clauses))
+        .order_by(VaultEntry.id)
+        .limit(MAX_PINNED_HUB_CHUNKS)
+    )
+    entries = list(result.scalars())
+    if excluded_category_ids:
+        entries = [e for e in entries if e.category_id not in excluded_category_ids]
+    return entries
+
+
+async def _find_family_entries(
+    db: AsyncSession,
+    question: str,
+    excluded_category_ids: set[int] | None = None,
+    exclude_ids: set[int] | None = None,
+    limit: int = MAX_PINNED_FAMILY_CHUNKS,
+    only_tokens: list[str] | None = None,
+) -> list[VaultEntry]:
+    """Library chunks for sibling product pages of a family named in the question.
+
+    Matched on the URL slug ("/aries-...") for the same reason as
+    _find_hub_entries: the variants of one family are near-identical pages
+    that all score alike, so similarity ranking returns an arbitrary few of
+    them rather than the set.
+    """
+    tokens = list(only_tokens) if only_tokens else _hub_tokens(question)
+    if not tokens:
+        return []
+
+    clauses = [VaultEntry.source_url.like(f"%/{token}-%") for token in tokens]
+    query = select(VaultEntry).where(VaultEntry.memory_enabled.is_(True), or_(*clauses))
+    if exclude_ids:
+        query = query.where(VaultEntry.id.notin_(exclude_ids))
+
+    result = await db.execute(query.order_by(VaultEntry.source_url, VaultEntry.id).limit(limit))
+    entries = list(result.scalars())
+    if excluded_category_ids:
+        entries = [e for e in entries if e.category_id not in excluded_category_ids]
+    return entries
+
+
 async def answer_question(
     db: AsyncSession, question: str, session_id: str, ip_address: str | None = None
 ) -> RagResult:
@@ -319,6 +486,9 @@ async def _answer_question_impl(
 
     vault_ids = [entry_id for entry_id, _ in vault_hits]
     vault_by_id = {}
+    # Shared by the hub-page pinning below, so a pinned overview page can
+    # never smuggle in content the Chatbot-KB opt-out excludes.
+    excluded_category_ids: set[int] = set()
     if vault_ids:
         vault_result = await db.execute(
             select(VaultEntry).where(
@@ -330,12 +500,12 @@ async def _answer_question_impl(
             # Separate opt-out from General Knowledge as a whole: drop only
             # entries under the sawochatbot import's category tree, leaving
             # crawler- and manually-added Library content untouched.
-            chatbot_kb_category_ids = await get_chatbot_kb_category_ids(db)
-            if chatbot_kb_category_ids:
+            excluded_category_ids = set(await get_chatbot_kb_category_ids(db))
+            if excluded_category_ids:
                 vault_by_id = {
                     entry_id: entry
                     for entry_id, entry in vault_by_id.items()
-                    if entry.category_id not in chatbot_kb_category_ids
+                    if entry.category_id not in excluded_category_ids
                 }
 
     faq_rows = sorted(
@@ -375,8 +545,70 @@ async def _answer_question_impl(
     (_best_kind, _best_entry), best_similarity = rows[0]
 
     # rows is already sorted best-first, so trimming here only ever drops the
-    # weakest matches — best_similarity/best match are unaffected.
-    rows = rows[:GENERATION_CONTEXT_LIMIT]
+    # weakest matches — best_similarity/best match are unaffected. A question
+    # asking for a whole product family gets a bigger slice: answering it
+    # completely means having every variant in context at once.
+    wants_enumeration = _is_enumeration_question(question)
+    context_limit = ENUMERATION_CONTEXT_LIMIT if wants_enumeration else GENERATION_CONTEXT_LIMIT
+    rows = rows[:context_limit]
+
+    # For an enumeration question, put the family's overview page and its
+    # sibling product pages in front of the ranked results, then fill the
+    # remaining budget from retrieval. Pinned rows spend the same budget
+    # rather than extending it, so context size stays bounded at
+    # context_limit however many siblings a family turns out to have.
+    #
+    # Restricted to enumeration questions: a single-fact question ("what kW
+    # is the SW3-45NS") is better served by the specific page retrieval
+    # already ranked first, and pinning would only crowd it out.
+    if wants_enumeration and general_knowledge_enabled:
+        vault_similarity = dict(vault_hits)
+        present_ids = {entry.id for (kind, entry), _ in rows if kind == "vault"}
+
+        pinned_entries = await _find_hub_entries(db, question, excluded_category_ids)
+        pinned_ids = {entry.id for entry in pinned_entries}
+        # A hub page's own slug names the family precisely ("tower-series" ->
+        # "tower"), so the sibling search is narrowed to it. Without that, a
+        # broad token from the question — a brand name like "sawo" — matches
+        # unrelated pages and spends the pinned budget on them.
+        hub_tokens = [
+            token for token in _hub_tokens(question)
+            if any(f"/{token}-" in (entry.source_url or "") for entry in pinned_entries)
+        ]
+        pinned_entries += await _find_family_entries(
+            db, question, excluded_category_ids, exclude_ids=pinned_ids,
+            only_tokens=hub_tokens or None,
+        )
+
+        # A pinned chunk keeps its real retrieval score when it was in the
+        # candidate pool at all; otherwise it takes the floor that makes it
+        # eligible to be cited as a source without claiming it out-ranked
+        # anything it did not.
+        pinned_rows = [
+            (("vault", entry), vault_similarity.get(entry.id, off_topic_threshold))
+            for entry in pinned_entries
+            if entry.id not in present_ids
+        ]
+        if pinned_rows:
+            pinned_ids = {entry.id for (_kind, entry), _ in pinned_rows}
+            # A family with no overview page (e.g. Aries) never populates
+            # hub_tokens above, but _find_family_entries still resolved the
+            # same fallback token set internally to find its siblings --
+            # reusing that here keeps "which family is this" consistent
+            # between pinning siblings in and filtering other families out.
+            filter_tokens = hub_tokens or _hub_tokens(question)
+            kept = [
+                pair
+                for pair in rows
+                if not (
+                    pair[0][0] == "vault"
+                    and (
+                        pair[0][1].id in pinned_ids
+                        or _is_off_family_product_page(pair[0][1].source_url, filter_tokens)
+                    )
+                )
+            ]
+            rows = (pinned_rows + kept)[:context_limit]
 
     context_parts = []
     matched_faq_ids: list[int] = []
@@ -426,14 +658,21 @@ async def _answer_question_impl(
             session_id=session_id, ip_address=ip_address,
         )
 
-    # The grounding check exists to catch a free model padding thin context
-    # with outside facts — a real risk with Vault content, which is raw
-    # crawled/uploaded material the LLM is summarizing on the fly. It's not
-    # needed when the answer is built purely from FAQ context: that content
-    # is already admin-curated and verified, so there's nothing left to
-    # hallucinate around, and skipping it roughly halves typical latency
-    # (the check itself is a second full LLM call, often slower than the
-    # original generation).
+    # The grounding check runs only on answers built purely from FAQ
+    # context, and is skipped as soon as any Library (Vault) chunk is used.
+    #
+    # That is the opposite of what the check was designed for — Vault content
+    # is the raw crawled material most at risk of being padded with outside
+    # facts — and it is deliberate, because the check is not affordable on a
+    # Vault-sized context. Measured on this KB with a 12-chunk Library
+    # context (~19k characters), a single check call took 377 seconds and
+    # still returned UNGROUNDED for a hand-verified correct answer. Enabling
+    # it there costs minutes per question and discards good answers; FAQ
+    # contexts are small enough for it to be both fast and accurate.
+    #
+    # The gap this leaves — an unverified claim inside a Library answer — is
+    # handled in SYSTEM_PROMPT instead, which forbids asserting where a
+    # product is documented unless the context ties it to that page.
     if not matched_vault_ids and not await _is_grounded(engine, context, generated):
         return await _fallback(
             db, question, fallback_message, best_similarity, engine_used=engine.name,
@@ -442,29 +681,26 @@ async def _answer_question_impl(
 
     generated = _sanitize_text(generated)
 
-    # Only the single most-relevant source earns a reference link — not
-    # every matched row that cleared confidence_threshold, since several
-    # topically-close pages (e.g. every sauna-heater sub-model) can each
-    # independently clear that bar for a question about the category in
-    # general, showing several links none of which is clearly THE answer.
-    # A margin-based "near the top score" cutoff was tried first and didn't
-    # help here: closely related pages score within a hair of each other, so
-    # a small margin still let all of them through. Taking only the exact
-    # top-scoring source is a deliberately strict, precision-over-recall
-    # choice — better to show no link than one that's merely "also related".
-    # A plain similarity-score comparison rather than an LLM judgment call —
-    # the LLM-based version of this check (asking the model which links were
+    # Links are the sources the answer was actually written from: every URL
+    # attached to a chunk that went into the context, best-ranked first and
+    # capped.
+    #
+    # The previous rule kept only URLs whose score tied the single best one,
+    # which decided the link by ranking accident rather than by what the
+    # answer used — a question about one product family could be captioned
+    # with a different family's page purely because that page happened to
+    # rank first. It also showed nothing at all unless the top score cleared
+    # confidence_threshold, so the common case of a good multi-source answer
+    # cited none of its sources.
+    #
+    # Still a plain score comparison rather than an LLM judgment call: the
+    # LLM-based version of this check (asking the model which links were
     # "relevant") proved inconsistent run-to-run on the same question even
     # at temperature 0, which a deterministic score avoids.
-    unique_urls = list(dict.fromkeys(reference_urls))
-    top_url_similarity = max((url_similarity.get(url, 0.0) for url in unique_urls), default=0.0)
-    if top_url_similarity >= threshold:
-        reference_urls = [
-            url for url in unique_urls
-            if url_similarity.get(url, 0.0) >= top_url_similarity - LINK_SIMILARITY_EPSILON
-        ]
-    else:
-        reference_urls = []
+    reference_urls = [
+        url for url in dict.fromkeys(reference_urls)
+        if url_similarity.get(url, 0.0) >= off_topic_threshold
+    ][:MAX_REFERENCE_URLS]
 
     # Same "only the exact top-scoring source" rule as reference_urls above,
     # applied to images: an image attached to one FAQ entry shouldn't ride

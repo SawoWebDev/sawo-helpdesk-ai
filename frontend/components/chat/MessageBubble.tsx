@@ -1,11 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, ThumbsDown, ThumbsUp } from "lucide-react";
+import { Check, Copy, ExternalLink, ThumbsDown, ThumbsUp } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { markdownLinkComponent } from "@/lib/markdownLink";
+import { splitMarkdownTables } from "@/lib/splitMarkdownTables";
+import { humanizeSourceUrl } from "@/lib/urlLabel";
 import BotAvatar from "./BotAvatar";
+import ChatTable from "./ChatTable";
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -19,6 +22,32 @@ export interface ChatMessage {
   lowConfidence?: boolean;
 }
 
+/** Markdown for one text block of a message, rendered inside a bubble.
+ *  Tables are handled separately by ChatTable; the prose-table rules here are
+ *  only a fallback for a table the splitter deliberately leaves in place,
+ *  such as one inside a fenced code block. */
+function MessageMarkdown({ text, isUser }: { text: string; isUser: boolean }) {
+  return (
+    <div className="prose prose-sm max-w-none text-inherit [&_*:not(a)]:text-inherit prose-p:my-1 prose-table:my-2 prose-th:px-3 prose-th:py-1 prose-td:px-3 prose-td:py-1">
+      {/* Spec/technical-data tables come back from the model as GFM pipe
+          tables, which react-markdown only understands with remark-gfm;
+          without it they rendered as one long run of literal "|" text. */}
+      <div className="overflow-x-auto">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            a: markdownLinkComponent(
+              `font-semibold underline underline-offset-2 ${isUser ? "text-white" : "text-sawo-dark dark:text-sawo-light"}`
+            ),
+          }}
+        >
+          {text}
+        </ReactMarkdown>
+      </div>
+    </div>
+  );
+}
+
 export default function MessageBubble({
   message,
   onCopy,
@@ -30,6 +59,24 @@ export default function MessageBubble({
 }) {
   const isUser = message.role === "user";
   const [copied, setCopied] = useState(false);
+
+  // Tables are lifted out of the bubble and rendered as their own full-width
+  // card, in place. User messages are left alone — they are plain text.
+  const blocks = isUser ? null : splitMarkdownTables(message.text);
+  const hasTable = !!blocks?.some((b) => b.type === "table");
+
+  const bubbleTone = isUser
+    ? "glass glass-user glass-soft glass-edge glass-edge-soft relative border border-transparent bg-gradient-to-br from-sawo-light to-sawo-dark font-medium text-white"
+    : message.isFallback
+      ? "border border-amber-200 bg-amber-50 font-medium text-amber-900 dark:border-amber-300/25 dark:bg-amber-400/10 dark:text-amber-100 dark:backdrop-blur-xl"
+      : "glass glass-soft glass-edge glass-edge-soft relative border border-transparent bg-white font-medium text-[#2a2420] dark:text-slate-100";
+
+  // Only the first bubble of a message gets the pointed tail corner, so a
+  // reply split around a table still reads as one message.
+  function bubbleClass(withTail: boolean) {
+    const tail = withTail ? (isUser ? "rounded-tr-[4px]" : "rounded-tl-[4px]") : "";
+    return `rounded-2xl ${tail} px-3.5 py-2.5 text-[13px] leading-relaxed shadow-sm ${bubbleTone}`;
+  }
 
   async function handleCopy() {
     try {
@@ -52,77 +99,94 @@ export default function MessageBubble({
         <BotAvatar />
       )}
 
-      <div className={`flex max-w-[80%] flex-col ${isUser ? "items-end" : "items-start"}`}>
-        <div
-          className={`rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed shadow-sm ${
-            isUser
-              ? "glass glass-user glass-soft glass-edge glass-edge-soft relative rounded-tr-[4px] border border-transparent bg-gradient-to-br from-sawo-light to-sawo-dark font-medium text-white"
-              : message.isFallback
-                ? "rounded-tl-[4px] border border-amber-200 bg-amber-50 font-medium text-amber-900 dark:border-amber-300/25 dark:bg-amber-400/10 dark:text-amber-100 dark:backdrop-blur-xl"
-                : "glass glass-soft glass-edge glass-edge-soft relative rounded-tl-[4px] border border-transparent bg-white font-medium text-[#2a2420] dark:text-slate-100"
-          }`}
-        >
-          <div className="prose prose-sm max-w-none text-inherit [&_*:not(a)]:text-inherit prose-p:my-1 prose-table:my-2 prose-th:px-2 prose-th:py-1 prose-th:text-left prose-td:px-2 prose-td:py-1">
-            {/* Spec/technical-data tables come back from the model as GFM pipe
-                tables — react-markdown only speaks CommonMark by default, so
-                without remark-gfm these rendered as one long run of literal
-                "|" text instead of an actual table. The overflow wrapper lets
-                a wide spec table scroll horizontally instead of blowing out
-                the chat bubble's width. */}
-            <div className="overflow-x-auto">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  a: markdownLinkComponent(
-                    `font-semibold underline underline-offset-2 ${
-                      isUser ? "text-white" : "text-sawo-dark dark:text-sawo-light"
-                    }`
-                  ),
-                }}
-              >
-                {message.text}
-              </ReactMarkdown>
-            </div>
-          </div>
+      <div className={`flex min-w-0 flex-col ${hasTable ? "w-full" : "max-w-[80%]"} ${isUser ? "items-end" : "items-start"}`}>
+        {(() => {
+          // Images, the low-confidence note and reference links always belong
+          // to the end of the reply, so they ride in the last bubble.
+          const extras = (
+            <>
+              {message.imageUrls && message.imageUrls.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {message.imageUrls.map((url) => (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      key={url}
+                      src={url}
+                      alt="Reference"
+                      className="max-h-40 max-w-full rounded-lg border border-slate-200 object-contain dark:border-white/15"
+                    />
+                  ))}
+                </div>
+              )}
 
-          {message.imageUrls && message.imageUrls.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {message.imageUrls.map((url) => (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  key={url}
-                  src={url}
-                  alt="Reference"
-                  className="max-h-40 max-w-full rounded-lg border border-slate-200 object-contain dark:border-white/15"
-                />
-              ))}
-            </div>
-          )}
+              {message.lowConfidence && !message.isFallback && (
+                <p className="mt-2 text-[11px] italic text-slate-400 dark:text-slate-500">
+                  This answer may be incomplete, so rate it below if it wasn&apos;t quite right.
+                </p>
+              )}
 
-          {message.lowConfidence && !message.isFallback && (
-            <p className="mt-2 text-[11px] italic text-slate-400 dark:text-slate-500">
-              This answer may be incomplete — rate it below if it wasn&apos;t quite right.
-            </p>
-          )}
+              {message.referenceUrls && message.referenceUrls.length > 0 && (
+                <div className="mt-2 flex flex-col gap-1 border-t border-black/5 pt-2 dark:border-white/10">
+                  <p
+                    className={`text-[10px] font-semibold uppercase tracking-wide ${
+                      isUser ? "text-white/70" : "text-slate-400 dark:text-slate-500"
+                    }`}
+                  >
+                    Sources
+                  </p>
+                  {message.referenceUrls.map((url) => (
+                    <a
+                      key={url}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={url}
+                      className={`flex min-w-0 items-center gap-1 text-xs font-semibold underline underline-offset-2 ${
+                        isUser ? "text-white" : "text-sawo dark:text-sawo-light"
+                      }`}
+                    >
+                      <ExternalLink size={11} className="shrink-0" strokeWidth={2.25} aria-hidden />
+                      <span className="truncate">{humanizeSourceUrl(url)}</span>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </>
+          );
 
-          {message.referenceUrls && message.referenceUrls.length > 0 && (
-            <div className="mt-2 flex flex-col gap-1">
-              {message.referenceUrls.map((url) => (
-                <a
-                  key={url}
-                  href={url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`break-all text-xs font-semibold underline underline-offset-2 ${
-                    isUser ? "text-white" : "text-sawo dark:text-sawo-light"
-                  }`}
-                >
-                  {url}
-                </a>
-              ))}
+          const hasExtras =
+            (message.imageUrls?.length ?? 0) > 0 ||
+            (message.referenceUrls?.length ?? 0) > 0 ||
+            (!!message.lowConfidence && !message.isFallback);
+
+          if (!hasTable || !blocks) {
+            return (
+              <div className={bubbleClass(true)}>
+                <MessageMarkdown text={message.text} isUser={isUser} />
+                {extras}
+              </div>
+            );
+          }
+
+          // A reply containing a table becomes a column of bubbles with the
+          // table cards sitting between them at the full width of the thread.
+          const lastTextIndex = blocks.map((b) => b.type).lastIndexOf("text");
+          return (
+            <div className="flex w-full flex-col items-start gap-2">
+              {blocks.map((block, i) =>
+                block.type === "table" ? (
+                  <ChatTable key={i} markdown={block.content} />
+                ) : (
+                  <div key={i} className={`max-w-[80%] ${bubbleClass(i === 0)}`}>
+                    <MessageMarkdown text={block.content} isUser={isUser} />
+                    {i === lastTextIndex && extras}
+                  </div>
+                )
+              )}
+              {lastTextIndex === -1 && hasExtras && <div className={`max-w-[80%] ${bubbleClass(false)}`}>{extras}</div>}
             </div>
-          )}
-        </div>
+          );
+        })()}
         {(message.time || !isUser) && (
           <span className="mt-1 flex items-center gap-1.5 px-1">
             {message.time && <span className="text-[10px] text-slate-400 dark:text-slate-500">{message.time}</span>}

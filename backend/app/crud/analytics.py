@@ -81,6 +81,38 @@ async def get_overview(db: AsyncSession) -> dict:
         round((previous_answered_7d / previous_chats_7d) * 100, 1) if previous_chats_7d else None
     )
 
+    # Satisfaction: share of *rated* answers rated "up", not share of all
+    # answers — most answers never get rated at all, and counting those as
+    # neutral/negative would make the rate mostly reflect rating volume
+    # rather than answer quality. rated_total_7d is returned alongside the
+    # rate so the UI can show it as a low-confidence stat when few messages
+    # have been rated yet.
+    rating_rows_7d = (
+        await db.execute(
+            select(ChatLog.rating).where(ChatLog.created_at >= since_7d, ChatLog.rating.is_not(None))
+        )
+    ).scalars().all()
+    rated_up_7d = sum(1 for r in rating_rows_7d if r == "up")
+    rated_total_7d = len(rating_rows_7d)
+    satisfaction_rate_7d = round((rated_up_7d / rated_total_7d) * 100, 1) if rated_total_7d else None
+
+    previous_rating_rows_7d = (
+        await db.execute(
+            select(ChatLog.rating).where(
+                ChatLog.created_at >= since_14d,
+                ChatLog.created_at < since_7d,
+                ChatLog.rating.is_not(None),
+            )
+        )
+    ).scalars().all()
+    previous_rated_up_7d = sum(1 for r in previous_rating_rows_7d if r == "up")
+    previous_rated_total_7d = len(previous_rating_rows_7d)
+    previous_satisfaction_rate_7d = (
+        round((previous_rated_up_7d / previous_rated_total_7d) * 100, 1)
+        if previous_rated_total_7d
+        else None
+    )
+
     unanswered_pending = (
         await db.execute(
             select(func.count(UnansweredQuestion.id)).where(UnansweredQuestion.status == "pending")
@@ -146,6 +178,13 @@ async def get_overview(db: AsyncSession) -> dict:
         "avg_latency_7d_ms": avg_latency_7d,
         "p95_latency_7d_ms": _p95(latency_values),
         "cost_per_answer_7d_usd": float(ai_cost_7d) / answered_7d if answered_7d else None,
+        "satisfaction_rate_7d": satisfaction_rate_7d,
+        "rated_total_7d": rated_total_7d,
+        "satisfaction_rate_delta_7d_points": (
+            None
+            if satisfaction_rate_7d is None or previous_satisfaction_rate_7d is None
+            else round(satisfaction_rate_7d - previous_satisfaction_rate_7d, 1)
+        ),
         "unanswered_pending": unanswered_pending,
         "faq_total": faq_total,
         "faq_published": faq_published,
