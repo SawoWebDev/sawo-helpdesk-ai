@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud.category import build_category_path_map, get_or_create_category_path
-from app.crud.faq import create_faq, list_faqs_all
+from app.crud.faq import create_faq, find_duplicate_faq, list_faqs_all
 from app.crud.faq_phrasing import create_phrasing
 from app.crud.vault import create_vault_entry, list_vault_entries_all
 from app.models.faq import FAQEntry
@@ -168,10 +168,11 @@ async def _import_faq_sheet(db: AsyncSession, ws) -> ImportSummary:
         image_url = cells.get("Image URL", "")
         reference_url = cells.get("Reference URL", "")
 
+        # Category is optional: FAQEntry.category_id is nullable and the staff
+        # FAQ editor already creates FAQs with no category — a blank cell
+        # means "no category", not an error.
         missing_fields = [
-            name
-            for name, value in [("Category", category_path), ("Question", question), ("Answer", answer)]
-            if not value
+            name for name, value in [("Question", question), ("Answer", answer)] if not value
         ]
         if missing_fields:
             summary.skipped += 1
@@ -180,13 +181,28 @@ async def _import_faq_sheet(db: AsyncSession, ws) -> ImportSummary:
             )
             continue
 
+        # Same duplicate rule as the staff UI / chat auto-promotion
+        # (crud.faq.find_duplicate_faq) — an exact or reviewed-phrasing match
+        # on the question text, never the row's database id, so a workbook
+        # re-imported (or imported into another deployment) is recognized as
+        # already present. The semantic near-duplicate check is skipped here
+        # (no question_vector passed) to avoid an embedding call per row on a
+        # bulk import.
+        duplicate = await find_duplicate_faq(db, question, include_drafts=True)
+        if duplicate is not None:
+            summary.skipped += 1
+            summary.errors.append(
+                RowError(row_number=row_number, reason=f"Already exists as FAQ #{duplicate.id}; skipped")
+            )
+            continue
+
         try:
-            category = await get_or_create_category_path(db, category_path)
+            category = await get_or_create_category_path(db, category_path) if category_path else None
             entry = await create_faq(
                 db,
                 question=question,
                 answer=answer,
-                category_id=category.id,
+                category_id=category.id if category else None,
                 image_urls=[image_url] if image_url else [],
                 reference_urls=[reference_url] if reference_url else [],
                 source="import",

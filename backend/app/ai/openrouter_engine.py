@@ -2,6 +2,7 @@ import asyncio
 import time
 
 import httpx
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.base import AIEngine, AIEngineError
 from app.services.ai_usage import record_usage
@@ -92,10 +93,14 @@ async def _with_retry(call):
 class OpenRouterEngine(AIEngine):
     name = "openrouter"
 
-    def __init__(self, api_key: str, model: str, embedding_model: str):
+    def __init__(self, api_key: str, model: str, embedding_model: str, db: AsyncSession):
         self.api_key = api_key
         self.model = model
         self.embedding_model = embedding_model
+        # Same DB context (engine/database file) the caller's session is bound
+        # to, so usage logging for this request lands in the same database as
+        # the operation it's recording — see app.services.ai_usage.record_usage.
+        self.db = db
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         if not self.api_key:
@@ -124,6 +129,7 @@ class OpenRouterEngine(AIEngine):
                     self.embedding_model,
                     "embedding",
                     data.get("usage"),
+                    self.db,
                     provider=data.get("provider"),
                     latency_ms=latency_ms,
                 )
@@ -176,6 +182,7 @@ class OpenRouterEngine(AIEngine):
                     self.model,
                     "chat",
                     data.get("usage"),
+                    self.db,
                     provider=data.get("provider"),
                     finish_reason=data["choices"][0].get("finish_reason"),
                     latency_ms=latency_ms,

@@ -20,7 +20,19 @@ documented link on top of that: the question's model's own product page lists
 the controllers it takes ("Available controls: Saunova/Innova"), so content
 scoped to those controllers applies to it too.
 
-No I/O here except linked_controllers' single indexed query; no AI calls.
+That link is deliberately split into two questions, both answered here:
+"which controllers does this model support" (linked_controllers — a set of
+labels, used to admit controller-scoped chunks past the filter above) and
+"which page said so" (linked_controller_pages — the actual page(s), for a
+caller that needs to show its work). A controller-scoped chunk carries no
+mention of the model itself, so a context built only from linked_controllers'
+say-so gives a reader — human or fact-checking model — no way to verify the
+claim that it applies; linked_controller_pages exists so the pipeline can
+include the one page that actually ties them together, as evidence, without
+promoting it to ranked answer content in its own right.
+
+No I/O here except linked_controllers'/linked_controller_pages' shared,
+single indexed query; no AI calls.
 """
 
 import re
@@ -145,24 +157,48 @@ def other_labels(question: Scope, excluded: list[Scope], linked_labels: frozense
     return sorted(_display(label) for label in found)
 
 
-async def linked_controllers(db: AsyncSession, question: Scope) -> frozenset[str]:
-    """Controllers that the question's model's own Library pages name (the
-    product page lists which controls the heater takes). Variants are not
-    carried over: an NS page that links a shared NS/NB manual does not make
-    NB troubleshooting apply to an NS heater."""
+async def _linked_pages(db: AsyncSession, question: Scope) -> list[tuple[VaultEntry, Scope]]:
+    """Library pages that name one of the question's models, together with
+    each page's own scope — the shared lookup behind linked_controllers()
+    (which only needs the controller labels) and linked_controller_pages()
+    (which needs the pages themselves, to cite as relationship evidence)."""
     if not question.models:
-        return frozenset()
+        return []
     result = await db.execute(
-        select(VaultEntry.title, VaultEntry.source_url, VaultEntry.content, VaultEntry.source_type)
+        select(VaultEntry)
         .where(
             VaultEntry.memory_enabled.is_(True),
             or_(*[VaultEntry.content.contains(model) for model in question.models]),
         )
         .limit(20)
     )
-    controllers: set[str] = set()
-    for title, source_url, content, source_type in result.all():
-        page = vault_scope(title, source_url, content, source_type)
+    matches = []
+    for entry in result.scalars():
+        page = vault_scope(entry.title, entry.source_url, entry.content, entry.source_type)
         if any(_model_matches(qm, pm) for qm in question.models for pm in page.models):
-            controllers |= page.labels - _VARIANTS
+            matches.append((entry, page))
+    return matches
+
+
+async def linked_controllers(db: AsyncSession, question: Scope) -> frozenset[str]:
+    """Controllers that the question's model's own Library pages name (the
+    product page lists which controls the heater takes). Variants are not
+    carried over: an NS page that links a shared NS/NB manual does not make
+    NB troubleshooting apply to an NS heater."""
+    controllers: set[str] = set()
+    for _entry, page in await _linked_pages(db, question):
+        controllers |= page.labels - _VARIANTS
     return frozenset(controllers)
+
+
+async def linked_controller_pages(db: AsyncSession, question: Scope) -> list[VaultEntry]:
+    """The question model's own product page(s) that document a controller
+    (e.g. "Available controls: Saunova/Innova (NS)") — the authoritative
+    evidence that content scoped to that controller (kept in context via
+    linked_controllers, above) actually applies to this model. Retrieval
+    ranks by semantic similarity to the question, which a product's own spec
+    page can easily score too low on to reach the answer context even though
+    it establishes the relationship a controller FAQ needs — this lets a
+    caller include that page deliberately when that relationship was used,
+    regardless of its retrieval score."""
+    return [entry for entry, page in await _linked_pages(db, question) if page.labels - _VARIANTS]

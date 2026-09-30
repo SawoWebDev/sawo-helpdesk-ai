@@ -12,6 +12,7 @@ async def get_active_engine(db: AsyncSession) -> AIEngine:
         api_key=values.get(keys.OPENROUTER_API_KEY, ""),
         model=values.get(keys.OPENROUTER_MODEL, ""),
         embedding_model=values.get(keys.OPENROUTER_EMBEDDING_MODEL, ""),
+        db=db,
     )
 
 

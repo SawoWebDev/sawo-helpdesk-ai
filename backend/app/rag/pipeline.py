@@ -13,11 +13,20 @@ from app.crud.settings import get_all_settings
 from app.db.vec_store import FAQ_VEC_TABLE, VAULT_VEC_TABLE, knn_search
 from app.models.chat_log import ChatLog
 from app.models.faq import FAQEntry
+from app.models.faq_phrasing import FAQPhrasing
 from app.models.unanswered import UnansweredQuestion
 from app.models.vault_entry import VaultEntry
 from app.rag import response_language
 from app.rag.answer_style import strip_source_talk
-from app.rag.applicability import Scope, applies, linked_controllers, other_labels, scope_of, vault_scope
+from app.rag.applicability import (
+    Scope,
+    applies,
+    linked_controller_pages,
+    linked_controllers,
+    other_labels,
+    scope_of,
+    vault_scope,
+)
 from app.rag.filler import is_filler
 from app.rag.saved_answers import (
     _CONTEXT_REFERENCE_RE,
@@ -26,6 +35,7 @@ from app.rag.saved_answers import (
     find_exact_answer,
     find_paraphrase_answer,
 )
+from app.rag.technical_key import TechnicalKey, extract_key
 from app.services.ai_usage import (
     FEATURE_CHAT_ANSWER_GENERATION,
     FEATURE_CHAT_OFF_TOPIC_REPLY,
@@ -276,22 +286,22 @@ def _limitation_message(
     best_kept: float,
     linked: frozenset[str],
     fallback_message: str,
+    language: response_language.ResponseLanguage,
 ) -> str:
     """Reply for a question about a specific product that the knowledge base
     doesn't cover: says so, instead of the generic fallback or an answer
     borrowed from another product. Names only the removed matches that
     outranked everything that was kept — the content that would otherwise
-    have been used — not every weak match that shares a word."""
+    have been used — not every weak match that shares a word. The lead-in and
+    the appended fallback text are both localized to `language` (see
+    response_language.limitation_message/localize_fallback_message);
+    `target`/`others` are technical identifiers and are never translated."""
     target = scope.describe()
-    message = f"The available documentation doesn't establish an answer to this for {target}."
     notable = sorted((pair for pair in excluded if pair[1] > best_kept), key=lambda pair: pair[1], reverse=True)
     others = other_labels(scope, [s for s, _sim in notable[:MAX_NAMED_EXCLUSIONS]], linked)
-    if others:
-        message += (
-            f" The related material found is for {', '.join(others)}, and nothing in it says it also "
-            f"applies to {target}, so it has not been applied here."
-        )
-    return f"{message} {fallback_message}"
+    message = response_language.limitation_message(target, others, language)
+    localized_fallback = response_language.localize_fallback_message(fallback_message, language)
+    return f"{message} {localized_fallback}"
 
 
 def _conversation_scope(history_rows: list[ChatLog]) -> Scope:
@@ -307,6 +317,56 @@ def _conversation_scope(history_rows: list[ChatLog]) -> Scope:
         if not _CONTEXT_REFERENCE_RE.search(row.question_text):
             break
     return Scope()
+
+
+async def _has_documented_identifier(db: AsyncSession, key: TechnicalKey) -> bool:
+    """True if one of `key`'s codes or parts (e.g. "E1", "TS1") is the exact
+    identifier of something the knowledge base actually documents — a
+    published FAQ's question/answer, an enabled reviewed phrasing, or
+    memory-enabled Library content — rather than merely a string that happens
+    to match technical_key's E<digits>-style patterns.
+
+    Used only to keep filler.is_filler's short-message heuristic (a bare
+    "E1?" is otherwise indistinguishable from "meh" or "abc" by length alone)
+    from swallowing a real technical question: "E1?" reaches the normal
+    pipeline exactly when E1 is something this KB documents, while an
+    undocumented short string like "Q9" is left as filler. A coarse SQL
+    `.contains()` narrows candidates (same approach as
+    applicability.linked_controllers), then extract_key on each candidate's
+    own text confirms an exact identifier match rather than a substring one
+    ("E1" must not match because a row happens to contain "E10")."""
+    identifiers = key.codes | key.parts
+    if not identifiers:
+        return False
+
+    def _mentions(text: str) -> bool:
+        found = extract_key(text)
+        return bool(identifiers & (found.codes | found.parts))
+
+    faq_like = or_(
+        *(FAQEntry.question.contains(i) for i in identifiers),
+        *(FAQEntry.answer.contains(i) for i in identifiers),
+    )
+    faq_rows = (
+        await db.execute(select(FAQEntry.question, FAQEntry.answer).where(FAQEntry.status == "published", faq_like))
+    ).all()
+    if any(_mentions(f"{q}\n{a}") for q, a in faq_rows):
+        return True
+
+    phrasing_like = or_(*(FAQPhrasing.phrasing.contains(i) for i in identifiers))
+    phrasings = (
+        await db.execute(select(FAQPhrasing.phrasing).where(FAQPhrasing.enabled.is_(True), phrasing_like))
+    ).scalars().all()
+    if any(_mentions(p) for p in phrasings):
+        return True
+
+    vault_like = or_(*(VaultEntry.content.contains(i) for i in identifiers))
+    contents = (
+        await db.execute(
+            select(VaultEntry.content).where(VaultEntry.memory_enabled.is_(True), vault_like).limit(50)
+        )
+    ).scalars().all()
+    return any(_mentions(c) for c in contents)
 
 
 def _entry_scope(kind: str, entry) -> Scope:
@@ -494,9 +554,22 @@ async def _answer_question_impl(
     chatbot_kb_enabled = settings_values[keys.CHATBOT_KB_ENABLED] == "true"
 
     engine = await get_active_engine(db)
+    # Computed this early (pure text function, no I/O) so every fallback below
+    # — including one from an embedding failure, before question_scope even
+    # exists — can localize its message; see response_language.py's
+    # localize_fallback_message/localize_off_topic_message/limitation_message.
+    language = response_language.detect(question)
 
+    # is_filler's short-message heuristic can't tell "E1?" from "meh" by
+    # length alone, so a short message it flags gets one more chance: if it
+    # carries a technical identifier (error/status code, component
+    # designator) that this KB actually documents, it is a real technical
+    # question, not small talk — see _has_documented_identifier. An
+    # undocumented short string is still treated as filler.
     if is_filler(question):
-        return await _off_topic(db, engine, question, off_topic_message, None, session_id, ip_address)
+        key = extract_key(question)
+        if key.is_empty or not await _has_documented_identifier(db, key):
+            return await _off_topic(db, engine, question, off_topic_message, None, session_id, ip_address)
 
     embedding_engine = await get_embedding_engine(db)
 
@@ -546,7 +619,7 @@ async def _answer_question_impl(
     except AIEngineError:
         return await _fallback(
             db, question, fallback_message, None, engine_used="none",
-            session_id=session_id, ip_address=ip_address,
+            language=language, session_id=session_id, ip_address=ip_address,
         )
 
     # Stage 2: a close rewording of a published FAQ with the same error
@@ -558,10 +631,12 @@ async def _answer_question_impl(
         return await _direct_answer_result(db, paraphrase, question, session_id, ip_address)
 
     # Both decided from the question text alone — no AI call. A follow-up that
-    # only says "it" is about the product the conversation last named.
-    language = response_language.detect(question)
+    # only says "it" is about the product the conversation last named — and so
+    # is one that names no product but does carry a technical identifier of
+    # its own ("E1?" after "SW3-45NS"): it has nothing to name a product with
+    # either, and reads the same way to a person continuing the conversation.
     question_scope = scope_of(question)
-    if question_scope.is_empty and _CONTEXT_REFERENCE_RE.search(question):
+    if question_scope.is_empty and (_CONTEXT_REFERENCE_RE.search(question) or not extract_key(question).is_empty):
         question_scope = _conversation_scope(history_rows)
 
     # Whether a same-day history exists is decided deterministically above
@@ -679,14 +754,14 @@ async def _answer_question_impl(
         if excluded:
             # Only other products' documentation matched: say so, with no LLM call.
             return await _fallback(
-                db, question, _limitation_message(question_scope, excluded, 0.0, linked, fallback_message), None,
-                engine_used="none", session_id=session_id, ip_address=ip_address,
+                db, question, _limitation_message(question_scope, excluded, 0.0, linked, fallback_message, language),
+                None, engine_used="none", language=language, session_id=session_id, ip_address=ip_address,
             )
         if not await _is_on_topic(engine, question):
             return await _off_topic(db, engine, question, off_topic_message, None, session_id, ip_address)
         return await _fallback(
             db, question, fallback_message, None, engine_used="none",
-            session_id=session_id, ip_address=ip_address,
+            language=language, session_id=session_id, ip_address=ip_address,
         )
 
     (_best_kind, _best_entry), best_similarity = rows[0]
@@ -790,6 +865,33 @@ async def _answer_question_impl(
             if entry.source_url:
                 reference_urls.append(entry.source_url)
                 url_similarity[entry.source_url] = max(url_similarity.get(entry.source_url, 0.0), similarity)
+
+    # Relationship evidence: some row above was only admitted past the
+    # applicability filter because it's scoped to a controller the question's
+    # model links (applicability.linked_controllers) rather than to the model
+    # itself — an Innova E1 FAQ never mentions "SW3-45NS". Without the page
+    # that actually documents "Available controls: Saunova/Innova" for that
+    # model, nothing in context ties the two together: the model has to take
+    # it purely on the system prompt's word, and a real answer naming the
+    # model has no CONTEXT support for that name at all. That page is added
+    # here, deliberately, as evidence for the relationship rather than as
+    # ranked answer content (it does not affect matched_vault_ids, promotion,
+    # or best_similarity/low_confidence, and does not need to out-rank the
+    # controller FAQ it's supporting) — added only when a row actually needed
+    # the link, never speculatively, and never in place of the off_topic
+    # floor other retrieval still has to clear.
+    if linked and any(
+        not applies(question_scope, _entry_scope(kind, entry), frozenset()) for (kind, entry), _sim in rows
+    ):
+        present_vault_ids = {entry.id for (kind, entry), _sim in rows if kind == "vault"}
+        for entry in await linked_controller_pages(db, question_scope):
+            if entry.id in present_vault_ids:
+                continue
+            context_parts.append(f"Topic: {entry.title}\n{entry.content}")
+            if entry.source_url:
+                reference_urls.append(entry.source_url)
+                url_similarity[entry.source_url] = max(url_similarity.get(entry.source_url, 0.0), off_topic_threshold)
+
     context = "\n\n".join(context_parts)
 
     try:
@@ -801,17 +903,17 @@ async def _answer_question_impl(
     except AIEngineError:
         return await _fallback(
             db, question, fallback_message, best_similarity, engine_used=engine.name,
-            session_id=session_id, ip_address=ip_address,
+            language=language, session_id=session_id, ip_address=ip_address,
         )
 
     if not generated or REFUSAL_SENTINEL in generated:
         message = (
             fallback_message if question_scope.is_empty
-            else _limitation_message(question_scope, excluded, best_similarity, linked, fallback_message)
+            else _limitation_message(question_scope, excluded, best_similarity, linked, fallback_message, language)
         )
         return await _fallback(
             db, question, message, best_similarity, engine_used=engine.name,
-            session_id=session_id, ip_address=ip_address,
+            language=language, session_id=session_id, ip_address=ip_address,
         )
 
     # The language instruction is only a prompt, and a prompt is what failed
@@ -821,7 +923,7 @@ async def _answer_question_impl(
     if not response_language.answer_matches(generated, language):
         return await _fallback(
             db, question, fallback_message, best_similarity, engine_used=engine.name,
-            session_id=session_id, ip_address=ip_address,
+            language=language, session_id=session_id, ip_address=ip_address,
         )
 
     # The grounding check runs only on answers built purely from FAQ
@@ -842,7 +944,7 @@ async def _answer_question_impl(
     if not matched_vault_ids and not await _is_grounded(engine, context, generated):
         return await _fallback(
             db, question, fallback_message, best_similarity, engine_used=engine.name,
-            session_id=session_id, ip_address=ip_address,
+            language=language, session_id=session_id, ip_address=ip_address,
         )
 
     generated = strip_source_talk(_sanitize_text(generated))
@@ -988,8 +1090,10 @@ async def _off_topic(
     logging an UnansweredQuestion, since there's no real support question for
     an agent to review. Tries to generate a natural, non-repetitive reply to
     what was actually said; falls back to the fixed configured message (still
-    on-topic, still safe) if that call fails."""
+    on-topic, still safe) if that call fails — localized the same way
+    pipeline._fallback localizes its own default message."""
     language = response_language.detect(question)
+    off_topic_message = response_language.localize_off_topic_message(off_topic_message, language)
     try:
         with feature_context(FEATURE_CHAT_OFF_TOPIC_REPLY):
             generated = await engine.generate(f"{OFF_TOPIC_SYSTEM_PROMPT} {language.reply_rule()}", "", question)
@@ -1031,9 +1135,19 @@ async def _fallback(
     fallback_message: str,
     confidence_score: float | None,
     engine_used: str,
+    language: response_language.ResponseLanguage | None = None,
     session_id: str | None = None,
     ip_address: str | None = None,
 ) -> RagResult:
+    # A message built by _limitation_message is already localized (and won't
+    # match the plain default below, so this is a no-op for it); a plain
+    # fallback_message setting value is localized here, once, for every
+    # caller. language=None (only the "message doesn't matter, already have
+    # every field it needs" internal callers, if any were ever added) skips
+    # it and shows the message exactly as passed in.
+    if language is not None:
+        fallback_message = response_language.localize_fallback_message(fallback_message, language)
+
     # Collapse repeat askings of the same question into one pending row with
     # a counter, rather than a fresh row per occurrence — otherwise a
     # question asked 50 times is 50 rows and the admin can't see what to fix

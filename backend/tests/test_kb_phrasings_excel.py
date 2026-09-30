@@ -59,7 +59,6 @@ async def other_db(tmp_path):
 
 
 async def seed(db):
-    # The FAQs sheet requires a category (existing rule), so the exported FAQ has one.
     category = Category(name="Innova")
     db.add(category)
     await db.commit()

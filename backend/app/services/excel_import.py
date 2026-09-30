@@ -5,7 +5,7 @@ from openpyxl import Workbook, load_workbook
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud.category import build_category_path_map, get_or_create_category_path
-from app.crud.faq import create_faq, list_faqs_all
+from app.crud.faq import create_faq, find_duplicate_faq, list_faqs_all
 from app.rag.reindex import embed_entry
 from app.services.kb_export import text_cells_only
 
@@ -127,9 +127,11 @@ async def import_workbook(db: AsyncSession, file_bytes: bytes) -> ImportSummary:
         image_url = cell("Image URL")
         reference_url = cell("Reference URL")
 
+        # Category is optional: FAQEntry.category_id is nullable, and the
+        # staff FAQ editor already creates FAQs with no category (category_id:
+        # null is its default) — a blank cell means "no category", not an
+        # error, so it must not be in this required-field check.
         missing_fields = []
-        if not category_path:
-            missing_fields.append("Category")
         if not question:
             missing_fields.append("Question")
         if not answer:
@@ -145,15 +147,34 @@ async def import_workbook(db: AsyncSession, file_bytes: bytes) -> ImportSummary:
             )
             continue
 
+        # Same duplicate rule the staff UI and chat auto-promotion already use
+        # (crud.faq.find_duplicate_faq): an exact or reviewed-phrasing match on
+        # the question text, not the row's database id — so re-importing the
+        # same workbook, or a workbook exported from a different deployment,
+        # is recognized as already present instead of creating a copy. The
+        # semantic near-duplicate check (question_vector) is intentionally not
+        # used here: it needs an embedding call per row, which a bulk import
+        # shouldn't pay for on every row just to catch reworded duplicates.
+        duplicate = await find_duplicate_faq(db, question, include_drafts=True)
+        if duplicate is not None:
+            summary.skipped += 1
+            summary.errors.append(
+                RowError(
+                    row_number=row_number,
+                    reason=f"Already exists as FAQ #{duplicate.id}; skipped",
+                )
+            )
+            continue
+
         try:
-            category = await get_or_create_category_path(db, category_path)
+            category = await get_or_create_category_path(db, category_path) if category_path else None
             image_urls = [image_url] if image_url else []
             reference_urls = [reference_url] if reference_url else []
             entry = await create_faq(
                 db,
                 question=question,
                 answer=answer,
-                category_id=category.id,
+                category_id=category.id if category else None,
                 image_urls=image_urls,
                 reference_urls=reference_urls,
                 source="import",

@@ -1,15 +1,19 @@
-"""Records OpenRouter token usage per request, independent of the caller's
-own DB session — OpenRouterEngine is constructed fresh from plain settings
-values in many call sites (RAG pipeline, FAQ generation, Library ingestion,
-reindexing) with no session threaded into generate()/embed(), so usage
-logging opens its own short-lived session rather than changing every one of
-those call sites' signatures."""
+"""Records OpenRouter token usage per request. Every OpenRouterEngine is
+constructed via app.ai.factory.get_active_engine()/get_embedding_engine(),
+which already has the caller's AsyncSession (bound to whichever database that
+caller is using — the real app database, or a temporary one in tests). Usage
+logging opens its own short-lived session rather than reusing that session
+object directly (it runs fire-and-forget via asyncio.create_task and may
+outlive the caller's session), but binds that short-lived session to the same
+underlying engine/database, so a usage row always lands in the same database
+as the operation that generated it."""
 
 import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
 
-from app.db.session import AsyncSessionLocal
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+
 from app.models.ai_usage_log import AIUsageLog
 
 logger = logging.getLogger(__name__)
@@ -73,6 +77,7 @@ async def record_usage(
     model: str,
     request_type: str,
     usage: dict | None,
+    db: AsyncSession,
     provider: str | None = None,
     finish_reason: str | None = None,
     latency_ms: int | None = None,
@@ -85,8 +90,16 @@ async def record_usage(
         return float(value) if value is not None else None
 
     try:
-        async with AsyncSessionLocal() as db:
-            db.add(
+        # Bind a fresh, short-lived session to the SAME engine as the
+        # caller's `db` (rather than reusing `db` itself, which this
+        # fire-and-forget task may outlive). This is what keeps usage
+        # logging inside whichever database — real or a test's temporary
+        # one — the calling operation is actually using.
+        session_factory = async_sessionmaker(
+            bind=AsyncEngine(db.get_bind()), class_=AsyncSession, expire_on_commit=False
+        )
+        async with session_factory() as usage_db:
+            usage_db.add(
                 AIUsageLog(
                     model=model,
                     is_free=model.endswith(":free"),
@@ -104,7 +117,7 @@ async def record_usage(
                     latency_ms=latency_ms,
                 )
             )
-            await db.commit()
+            await usage_db.commit()
     except Exception:
         # Usage tracking is a monitoring side-effect, never allowed to break
         # the actual chat/embedding request it's observing.
