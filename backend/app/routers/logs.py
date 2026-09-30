@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.base import AIEngineError
 from app.ai.factory import get_embedding_engine
-from app.core.deps import require_admin, require_agent_or_admin
+from app.core.deps import require_admin, require_agent_or_admin, require_dangerous_action_confirmation
 from app.crud.faq import create_faq, find_duplicate_faq
 from app.db.session import get_db
 from app.models.ai_usage_log import AIUsageLog
@@ -15,10 +15,18 @@ from app.models.faq import FAQEntry
 from app.models.user import User
 from app.models.vault_entry import VaultEntry
 from app.rag.reindex import embed_entry
-from app.schemas.chat_log import ChatLogOut, DeleteSessionsRequest, SessionSummary, SessionUsageOut
+from app.schemas.admin import DangerousActionConfirm
+from app.schemas.chat_log import (
+    ChatLogOut,
+    ChatLogWithUsageOut,
+    DeleteSessionsRequest,
+    MessageUsage,
+    SessionSummary,
+    SessionUsageOut,
+)
 from app.schemas.common import PaginatedResponse
 from app.schemas.faq import FAQOut
-from app.services.ai_usage import FEATURE_FAQ_DEDUP, feature_context
+from app.services.ai_usage import FEATURE_CHAT_QUERY_EMBEDDING, FEATURE_FAQ_DEDUP, feature_context
 
 router = APIRouter(prefix="/api/logs", tags=["logs"], dependencies=[Depends(require_agent_or_admin)])
 
@@ -191,21 +199,85 @@ async def get_session_usage(session_id: str, db: AsyncSession = Depends(get_db))
     return result.scalars().all()
 
 
-@router.get("/sessions/{session_id}", response_model=list[ChatLogOut])
+# AI usage rows are written by a fire-and-forget task (see
+# ai.openrouter_engine), so the last call for a message can land a moment
+# after that message's chat log row. Each usage row is attributed to the first
+# message logged no earlier than GRACE before it: late writes stay with their
+# own message, while the next question (which needs a person to read and type)
+# is always well past the grace window.
+USAGE_ATTRIBUTION_GRACE = timedelta(seconds=5)
+
+
+def _summarize(rows: list[AIUsageLog]) -> MessageUsage:
+    usage = MessageUsage()
+    input_costs: list[float] = []
+    output_costs: list[float] = []
+    for row in rows:
+        usage.calls += 1
+        if row.request_type == "embedding":
+            usage.embedding_calls += 1
+        else:
+            usage.llm_calls += 1
+        usage.input_tokens += row.prompt_tokens or 0
+        usage.output_tokens += row.completion_tokens or 0
+        usage.total_cost_usd += row.cost_usd or 0.0
+        if row.input_cost_usd is not None:
+            input_costs.append(row.input_cost_usd)
+        if row.output_cost_usd is not None:
+            output_costs.append(row.output_cost_usd)
+        if row.model not in usage.models:
+            usage.models.append(row.model)
+    # Only report the split when every call in the group has it — a partial
+    # sum would silently understate the cost.
+    if rows and len(input_costs) == len(rows):
+        usage.input_cost_usd = sum(input_costs)
+    if rows and len(output_costs) == len(rows):
+        usage.output_cost_usd = sum(output_costs)
+    return usage
+
+
+@router.get("/sessions/{session_id}", response_model=list[ChatLogWithUsageOut])
 async def get_session_thread(session_id: str, db: AsyncSession = Depends(get_db)):
+    """The conversation plus, per message, what the AI calls behind it cost:
+    question side = embedding the staff question (and saved-answer matching),
+    answer side = the LLM calls that produced the reply. A reply whose
+    answer_usage has llm_calls == 0 was served without the LLM (saved answer)."""
     result = await db.execute(
         select(ChatLog).where(ChatLog.session_id == session_id).order_by(ChatLog.created_at.asc())
     )
     items = list(result.scalars().all())
     if not items:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
-    return items
+
+    usage_result = await db.execute(
+        select(AIUsageLog).where(AIUsageLog.session_id == session_id).order_by(AIUsageLog.created_at.asc())
+    )
+    per_message: dict[int, list[AIUsageLog]] = {item.id: [] for item in items}
+    for row in usage_result.scalars().all():
+        owner = next((item for item in items if item.created_at >= row.created_at - USAGE_ATTRIBUTION_GRACE), None)
+        if owner is not None:
+            per_message[owner.id].append(row)
+
+    out = []
+    for item in items:
+        rows = per_message[item.id]
+        question_rows = [r for r in rows if r.feature == FEATURE_CHAT_QUERY_EMBEDDING]
+        answer_rows = [r for r in rows if r.feature != FEATURE_CHAT_QUERY_EMBEDDING]
+        out.append(
+            ChatLogWithUsageOut(
+                **ChatLogOut.model_validate(item).model_dump(),
+                question_usage=_summarize(question_rows),
+                answer_usage=_summarize(answer_rows),
+            )
+        )
+    return out
 
 
 @router.delete("", status_code=status.HTTP_204_NO_CONTENT)
 async def clear_all_logs(
+    payload: DangerousActionConfirm,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    _admin: User = Depends(require_dangerous_action_confirmation),
 ):
     await db.execute(ChatLog.__table__.delete())
     await db.commit()

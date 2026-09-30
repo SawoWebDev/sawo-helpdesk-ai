@@ -9,7 +9,7 @@ from app.ai.base import AIEngineError
 from app.ai.factory import get_active_engine, get_embedding_engine
 from app.core import setting_keys
 from app.core.config import settings
-from app.core.deps import require_admin, require_agent_or_admin
+from app.core.deps import require_admin, require_agent_or_admin, require_dangerous_action_confirmation
 from app.crud.category import create_category, get_category, get_category_by_name
 from app.crud.harvest import (
     count_sources_by_job,
@@ -32,7 +32,10 @@ from app.models.harvest_job import HarvestJob
 from app.models.harvest_source import HarvestSource
 from app.models.user import User
 from app.models.vault_entry import VaultEntry
-from app.rag.pipeline import REFUSAL_SENTINEL, SYSTEM_PROMPT, _is_grounded, _sanitize_text
+from app.rag import response_language
+from app.rag.applicability import scope_of
+from app.rag.pipeline import REFUSAL_SENTINEL, _generation_prompt, _is_grounded, _sanitize_text
+from app.schemas.admin import DangerousActionConfirm
 from app.schemas.common import PaginatedResponse
 from app.schemas.library import (
     LibraryAnswerSourceOut,
@@ -87,8 +90,9 @@ async def _resolve_category(db: AsyncSession, category_id: int | None, new_categ
 # imports.router vs faqs.router in main.py).
 @router.delete("", status_code=status.HTTP_204_NO_CONTENT)
 async def clear_all_library(
+    payload: DangerousActionConfirm,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    _admin: User = Depends(require_dangerous_action_confirmation),
 ):
     await db.execute(text(f"DELETE FROM {VAULT_VEC_TABLE}"))
     await db.execute(VaultEntry.__table__.delete())
@@ -326,8 +330,16 @@ async def search(payload: LibrarySearchRequest, db: AsyncSession = Depends(get_d
         try:
             engine = await get_active_engine(db)
             with feature_context(FEATURE_LIBRARY_SEARCH_ANSWER):
-                generated = await engine.generate(SYSTEM_PROMPT, context, payload.query)
-            if generated and REFUSAL_SENTINEL not in generated and await _is_grounded(engine, context, generated):
+                language = response_language.detect(payload.query)
+                generated = await engine.generate(
+                    _generation_prompt(scope_of(payload.query), language), context, payload.query
+                )
+            if (
+                generated
+                and REFUSAL_SENTINEL not in generated
+                and response_language.answer_matches(generated, language)
+                and await _is_grounded(engine, context, generated)
+            ):
                 answer = _sanitize_text(generated)
                 seen_urls: set[str] = set()
                 for result, _entry in synthesis_pool:

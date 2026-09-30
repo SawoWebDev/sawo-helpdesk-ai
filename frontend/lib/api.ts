@@ -73,8 +73,8 @@ export function apiPut<T>(path: string, body?: unknown): Promise<T> {
   return apiFetch<T>(path, { method: "PUT", body: body !== undefined ? JSON.stringify(body) : undefined });
 }
 
-export function apiDelete<T>(path: string): Promise<T> {
-  return apiFetch<T>(path, { method: "DELETE" });
+export function apiDelete<T>(path: string, body?: unknown): Promise<T> {
+  return apiFetch<T>(path, { method: "DELETE", body: body !== undefined ? JSON.stringify(body) : undefined });
 }
 
 // For file downloads behind auth: a plain <a href> never sends the JWT (only

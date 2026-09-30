@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { apiGet } from "@/lib/api";
 import FAQForm, { FAQFormValues } from "@/components/admin/FAQForm";
+import FAQPhrasingsPanel from "./FAQPhrasingsPanel";
 
 export default function FAQModal({
   faqId,
@@ -47,7 +48,10 @@ export default function FAQModal({
 
         <div className="overflow-y-auto p-5">
           {initial ? (
-            <FAQForm faqId={faqId} initial={initial} onSaved={onSaved} onCancel={onClose} />
+            <>
+              <FAQForm faqId={faqId} initial={initial} onSaved={onSaved} onCancel={onClose} />
+              {isEdit && <FAQPhrasingsPanel faqId={faqId!} />}
+            </>
           ) : (
             <p className="text-slate-400 dark:text-slate-500">Loading...</p>
           )}

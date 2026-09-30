@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.crud.category import build_category_path_map, get_or_create_category_path
 from app.crud.faq import create_faq, list_faqs_all
 from app.rag.reindex import embed_entry
+from app.services.kb_export import text_cells_only
 
 TEMPLATE_HEADERS = ["Category", "Question", "Answer", "Image URL", "Reference URL"]
 REQUIRED_HEADERS = ["Category", "Question", "Answer"]
@@ -58,6 +59,7 @@ async def export_faqs(
             ]
         )
 
+    text_cells_only(ws)
     buffer = io.BytesIO()
     wb.save(buffer)
     return buffer.getvalue()

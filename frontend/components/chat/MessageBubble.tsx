@@ -69,13 +69,15 @@ export default function MessageBubble({
     ? "glass glass-user glass-soft glass-edge glass-edge-soft relative border border-transparent bg-gradient-to-br from-sawo-light to-sawo-dark font-medium text-white"
     : message.isFallback
       ? "border border-amber-200 bg-amber-50 font-medium text-amber-900 dark:border-amber-300/25 dark:bg-amber-400/10 dark:text-amber-100 dark:backdrop-blur-xl"
-      : "glass glass-soft glass-edge glass-edge-soft relative border border-transparent bg-white font-medium text-[#2a2420] dark:text-slate-100";
+      : // Light mode: white on the #faf8f5 page is too close to see, so the bubble
+        // gets a warm border + shadow. Dark mode keeps the transparent glass edge.
+        "glass glass-soft glass-edge glass-edge-soft relative border border-sawo-border bg-white font-medium text-[#2a2420] shadow-[0_2px_8px_rgba(139,105,71,0.10)] dark:border-transparent dark:text-slate-100 dark:shadow-sm";
 
   // Only the first bubble of a message gets the pointed tail corner, so a
   // reply split around a table still reads as one message.
   function bubbleClass(withTail: boolean) {
     const tail = withTail ? (isUser ? "rounded-tr-[4px]" : "rounded-tl-[4px]") : "";
-    return `rounded-2xl ${tail} px-3.5 py-2.5 text-[13px] leading-relaxed shadow-sm ${bubbleTone}`;
+    return `rounded-2xl ${tail} px-3.5 py-2.5 text-[13px] leading-relaxed ${isUser || message.isFallback ? "shadow-sm" : ""} ${bubbleTone}`;
   }
 
   async function handleCopy() {

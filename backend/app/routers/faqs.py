@@ -4,15 +4,31 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.base import AIEngineError
 from app.ai.factory import get_embedding_engine
-from app.core.deps import require_admin, require_agent_or_admin
+from app.core.deps import require_admin, require_agent_or_admin, require_dangerous_action_confirmation
 from app.crud.faq import create_faq, delete_faq, find_duplicate_faq, get_faq, list_faqs
+from app.crud.faq_phrasing import (
+    PhrasingError,
+    create_phrasing,
+    delete_phrasing,
+    get_phrasing,
+    list_phrasings,
+    update_phrasing,
+)
 from app.db.session import get_db
-from app.db.vec_store import FAQ_VEC_TABLE
+from app.db.vec_store import FAQ_PHRASING_VEC_TABLE, FAQ_QUESTION_VEC_TABLE, FAQ_VEC_TABLE
 from app.models.faq import FAQEntry
 from app.models.user import User
 from app.rag.reindex import embed_entry
+from app.schemas.admin import DangerousActionConfirm
 from app.schemas.common import PaginatedResponse
-from app.schemas.faq import FAQCreate, FAQOut, FAQUpdate
+from app.schemas.faq import (
+    FAQCreate,
+    FAQOut,
+    FAQPhrasingCreate,
+    FAQPhrasingOut,
+    FAQPhrasingUpdate,
+    FAQUpdate,
+)
 from app.services.ai_usage import FEATURE_FAQ_DEDUP, feature_context
 from app.services.uploads import delete_unreferenced_uploads
 
@@ -82,8 +98,9 @@ async def create(payload: FAQCreate, db: AsyncSession = Depends(get_db)):
 
 @router.delete("", status_code=status.HTTP_204_NO_CONTENT)
 async def clear_all_faqs(
+    payload: DangerousActionConfirm,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    _admin: User = Depends(require_dangerous_action_confirmation),
 ):
     all_image_urls = [
         url
@@ -91,6 +108,8 @@ async def clear_all_faqs(
         for url in (image_urls or [])
     ]
     await db.execute(text(f"DELETE FROM {FAQ_VEC_TABLE}"))
+    await db.execute(text(f"DELETE FROM {FAQ_QUESTION_VEC_TABLE}"))
+    await db.execute(text(f"DELETE FROM {FAQ_PHRASING_VEC_TABLE}"))  # phrasing rows go by ON DELETE CASCADE
     await db.execute(FAQEntry.__table__.delete())
     await db.commit()
     await delete_unreferenced_uploads(db, all_image_urls)
@@ -152,3 +171,64 @@ async def delete(faq_id: int, db: AsyncSession = Depends(get_db)):
     if entry is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="FAQ entry not found")
     await delete_faq(db, entry)
+
+
+# --- reviewed alternate phrasings -------------------------------------------------
+# Same access rule as editing the FAQ itself (router-level require_agent_or_admin).
+# Only staff create these: nothing in chat or AI output adds a phrasing on its own.
+
+
+async def _faq_or_404(db: AsyncSession, faq_id: int) -> FAQEntry:
+    entry = await get_faq(db, faq_id)
+    if entry is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="FAQ entry not found")
+    return entry
+
+
+def _phrasing_http_error(exc: PhrasingError) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT if exc.conflict else status.HTTP_400_BAD_REQUEST, detail=str(exc)
+    )
+
+
+@router.get("/{faq_id}/phrasings", response_model=list[FAQPhrasingOut])
+async def list_faq_phrasings(faq_id: int, db: AsyncSession = Depends(get_db)):
+    await _faq_or_404(db, faq_id)
+    return await list_phrasings(db, faq_id)
+
+
+@router.post("/{faq_id}/phrasings", response_model=FAQPhrasingOut, status_code=status.HTTP_201_CREATED)
+async def add_faq_phrasing(
+    faq_id: int,
+    payload: FAQPhrasingCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_agent_or_admin),
+):
+    faq = await _faq_or_404(db, faq_id)
+    try:
+        return await create_phrasing(db, faq, payload.phrasing, created_by_id=user.id)
+    except PhrasingError as exc:
+        raise _phrasing_http_error(exc) from exc
+
+
+@router.patch("/{faq_id}/phrasings/{phrasing_id}", response_model=FAQPhrasingOut)
+async def edit_faq_phrasing(
+    faq_id: int, phrasing_id: int, payload: FAQPhrasingUpdate, db: AsyncSession = Depends(get_db)
+):
+    faq = await _faq_or_404(db, faq_id)
+    entry = await get_phrasing(db, faq_id, phrasing_id)
+    if entry is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Phrasing not found")
+    try:
+        return await update_phrasing(db, faq, entry, payload.phrasing, payload.enabled)
+    except PhrasingError as exc:
+        raise _phrasing_http_error(exc) from exc
+
+
+@router.delete("/{faq_id}/phrasings/{phrasing_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_faq_phrasing(faq_id: int, phrasing_id: int, db: AsyncSession = Depends(get_db)):
+    await _faq_or_404(db, faq_id)
+    entry = await get_phrasing(db, faq_id, phrasing_id)
+    if entry is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Phrasing not found")
+    await delete_phrasing(db, entry)

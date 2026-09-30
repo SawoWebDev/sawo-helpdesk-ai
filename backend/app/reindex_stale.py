@@ -12,7 +12,7 @@ from app.ai.base import AIEngineError
 from app.db.base import AsyncSessionLocal
 from app.models.faq import FAQEntry
 from app.models.vault_entry import VaultEntry
-from app.rag.reindex import reindex_stale_faq
+from app.rag.reindex import has_stale_faq_vectors, reindex_stale_faq
 from app.rag.vault_reindex import reindex_stale_vault
 
 logger = logging.getLogger(__name__)
@@ -20,9 +20,9 @@ logger = logging.getLogger(__name__)
 
 async def reindex_stale() -> None:
     async with AsyncSessionLocal() as db:
-        has_stale_faq = (
-            await db.execute(select(exists().where(FAQEntry.has_embedding.is_(False))))
-        ).scalar()
+        # Includes FAQs embedded before question-only vectors existed, and
+        # phrasings whose embedding failed when they were added.
+        has_stale_faq = await has_stale_faq_vectors(db)
         has_stale_vault = (
             await db.execute(
                 select(

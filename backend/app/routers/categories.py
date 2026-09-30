@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import require_admin, require_agent_or_admin
+from app.core.deps import require_admin, require_agent_or_admin, require_dangerous_action_confirmation
 from app.crud.category import (
     create_category,
     delete_category,
@@ -12,6 +12,7 @@ from app.crud.category import (
 from app.db.session import get_db
 from app.models.category import Category
 from app.models.user import User
+from app.schemas.admin import DangerousActionConfirm
 from app.schemas.category import CategoryCreate, CategoryOut, CategoryUpdate
 
 router = APIRouter(
@@ -44,8 +45,9 @@ async def create(payload: CategoryCreate, db: AsyncSession = Depends(get_db)):
 
 @router.delete("", status_code=status.HTTP_204_NO_CONTENT)
 async def clear_all_categories(
+    payload: DangerousActionConfirm,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    _admin: User = Depends(require_dangerous_action_confirmation),
 ):
     await db.execute(Category.__table__.delete())
     await db.commit()

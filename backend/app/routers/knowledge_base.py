@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import require_admin
 from app.db.session import get_db
+from app.models.user import User
 from app.services.kb_export import ImportSummary, export_knowledge_base, import_knowledge_base
 
 router = APIRouter(prefix="/api/knowledge-base", tags=["knowledge-base"], dependencies=[Depends(require_admin)])
@@ -14,6 +15,7 @@ def _summary_dict(summary: ImportSummary) -> dict:
         "created": summary.created,
         "skipped": summary.skipped,
         "failed": summary.failed,
+        "unchanged": summary.unchanged,
         "errors": [{"row": e.row_number, "reason": e.reason} for e in summary.errors],
     }
 
@@ -29,7 +31,13 @@ async def export_knowledge_base_endpoint(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/import")
-async def import_knowledge_base_endpoint(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
+async def import_knowledge_base_endpoint(
+    file: UploadFile = File(...), db: AsyncSession = Depends(get_db), user: User = Depends(require_admin)
+):
     contents = await file.read()
-    summary = await import_knowledge_base(db, contents)
-    return {"faqs": _summary_dict(summary.faqs), "library": _summary_dict(summary.library)}
+    summary = await import_knowledge_base(db, contents, created_by_id=user.id)
+    return {
+        "faqs": _summary_dict(summary.faqs),
+        "library": _summary_dict(summary.library),
+        "phrasings": _summary_dict(summary.phrasings),
+    }

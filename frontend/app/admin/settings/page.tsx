@@ -5,6 +5,7 @@ import Link from "next/link";
 import { apiDelete, apiGet, apiPost, downloadFile, getToken, ApiError } from "@/lib/api";
 import OpenRouterModelSelect from "@/components/admin/OpenRouterModelSelect";
 import PageHeader from "@/components/admin/PageHeader";
+import DangerousActionModal, { DangerousActionPayload } from "@/components/admin/DangerousActionModal";
 import { ChevronRight } from "lucide-react";
 
 // Matches the backend's settings.py MASK constant — the API never returns
@@ -51,9 +52,10 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [resettingKey, setResettingKey] = useState<string | null>(null);
   const [resetMessage, setResetMessage] = useState<string | null>(null);
   const [resetError, setResetError] = useState<string | null>(null);
+  const [pendingReset, setPendingReset] = useState<ResetTarget | null>(null);
+  const [showPurgeModal, setShowPurgeModal] = useState(false);
   const [kbExporting, setKbExporting] = useState(false);
   const [kbImporting, setKbImporting] = useState(false);
   const [kbMessage, setKbMessage] = useState<string | null>(null);
@@ -67,19 +69,27 @@ export default function SettingsPage() {
     });
   }, []);
 
-  async function handleReset(target: ResetTarget) {
-    if (!confirm(`Permanently delete ALL ${target.label} data? This cannot be undone.`)) return;
-    setResettingKey(target.key);
+  // Opens the confirmation modal; the actual delete only fires once the
+  // admin has typed the phrase and re-entered their credentials there.
+  function handleReset(target: ResetTarget) {
     setResetError(null);
     setResetMessage(null);
-    try {
-      await apiDelete(target.endpoint);
-      setResetMessage(`${target.label} data has been reset.`);
-    } catch (err) {
-      setResetError(err instanceof ApiError ? err.message : `Failed to reset ${target.label}`);
-    } finally {
-      setResettingKey(null);
-    }
+    setPendingReset(target);
+  }
+
+  async function confirmReset(payload: DangerousActionPayload) {
+    if (!pendingReset) return;
+    await apiDelete(pendingReset.endpoint, payload);
+    setResetMessage(`${pendingReset.label} data has been reset.`);
+    setResetError(null);
+    setPendingReset(null);
+  }
+
+  async function confirmPurgeAll(payload: DangerousActionPayload) {
+    await apiPost("/api/admin/purge-all", payload);
+    setResetMessage("All Chat Logs, Unanswered, Categories, FAQs, and Library data has been purged.");
+    setResetError(null);
+    setShowPurgeModal(false);
   }
 
   async function handleExportKnowledgeBase() {
@@ -116,13 +126,17 @@ export default function SettingsPage() {
       }
       const faqErrors = data.faqs.errors.length;
       const libraryErrors = data.library.errors.length;
+      const phrasingErrors = data.phrasings.errors.length;
       setKbMessage(
         `FAQs — created: ${data.faqs.created}, skipped: ${data.faqs.skipped}, failed: ${data.faqs.failed}. ` +
-          `Library — created: ${data.library.created}, skipped: ${data.library.skipped}, failed: ${data.library.failed}.` +
-          (faqErrors || libraryErrors ? " See console for row errors." : "")
+          `Library — created: ${data.library.created}, skipped: ${data.library.skipped}, failed: ${data.library.failed}. ` +
+          `Phrasings — created: ${data.phrasings.created}, already present: ${data.phrasings.unchanged}, ` +
+          `skipped: ${data.phrasings.skipped}, failed: ${data.phrasings.failed}.` +
+          (faqErrors || libraryErrors || phrasingErrors ? " See console for row errors." : "")
       );
       if (faqErrors) console.table(data.faqs.errors);
       if (libraryErrors) console.table(data.library.errors);
+      if (phrasingErrors) console.table(data.phrasings.errors);
     } catch (err) {
       setKbError(err instanceof ApiError ? err.message : "Failed to import knowledge base");
     } finally {
@@ -271,10 +285,9 @@ export default function SettingsPage() {
                       <button
                         type="button"
                         onClick={() => handleReset(target)}
-                        disabled={resettingKey === target.key}
-                        className="text-sm font-medium text-red-600 hover:underline disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-400"
+                        className="text-sm font-medium text-red-600 hover:underline dark:text-red-400"
                       >
-                        {resettingKey === target.key ? "Resetting..." : "Reset"}
+                        Reset
                       </button>
                     </td>
                   </tr>
@@ -282,7 +295,43 @@ export default function SettingsPage() {
               </tbody>
             </table>
           </div>
+
+          <div className="mt-6 rounded-lg border border-red-200 bg-red-50/50 p-4 dark:border-red-500/20 dark:bg-red-500/5">
+            <h2 className="mb-1 text-sm font-semibold text-red-700 dark:text-red-400">Danger Zone</h2>
+            <p className="mb-3 text-xs text-slate-600 dark:text-slate-400">
+              Wipes Chat Logs, Unanswered, Categories, FAQs, and Library in one go everything the individual
+              resets above cover. Your OpenRouter API keys, Settings, and user accounts are <strong>not</strong>{" "}
+              touched.
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowPurgeModal(true)}
+              className="rounded border border-red-300 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100 dark:border-red-500/30 dark:text-red-400 dark:hover:bg-red-500/10"
+            >
+              Purge All Data
+            </button>
+          </div>
         </div>
+      )}
+
+      {pendingReset && (
+        <DangerousActionModal
+          title={`Reset ${pendingReset.label}`}
+          description={`This permanently deletes ALL ${pendingReset.label} data. This cannot be undone.`}
+          confirmLabel="Delete"
+          onClose={() => setPendingReset(null)}
+          onConfirm={confirmReset}
+        />
+      )}
+
+      {showPurgeModal && (
+        <DangerousActionModal
+          title="Purge All Data"
+          description="This permanently deletes ALL Chat Logs, Unanswered, Categories, FAQs, and Library data. This cannot be undone."
+          confirmLabel="Purge everything"
+          onClose={() => setShowPurgeModal(false)}
+          onConfirm={confirmPurgeAll}
+        />
       )}
 
       {activeTab === "general" && (

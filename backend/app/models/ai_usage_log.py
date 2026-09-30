@@ -21,6 +21,12 @@ class AIUsageLog(Base):
     # ones. Not estimated from token counts, since OpenRouter already gives
     # the authoritative number per request.
     cost_usd: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
+    # OpenRouter's usage.cost_details split of cost_usd: what the prompt
+    # (input: question + retrieved context + instructions) cost vs what the
+    # generated text (output) cost. NULL for rows logged before this existed,
+    # or when a response doesn't include cost_details.
+    input_cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    output_cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     # The chat session this call was made for, when it was made inside the
     # RAG pipeline answering a visitor question — NULL for usage with no chat
     # session context (FAQ generation, Library ingestion, reindexing). Lets

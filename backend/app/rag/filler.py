@@ -44,7 +44,10 @@ FILLER_PHRASES = {
     "haha",
 }
 
-_NORMALIZE_RE = re.compile(r"[^a-z0-9\s]")
+# Unicode-aware on purpose: an ASCII-only class erased every Chinese, Cyrillic,
+# etc. character, so any question in those scripts collapsed to "" or a short
+# leftover like "sawo" and was answered as small talk, never retrieved for.
+_NORMALIZE_RE = re.compile(r"[^\w\s]")
 
 
 def is_filler(text: str) -> bool:
@@ -55,6 +58,9 @@ def is_filler(text: str) -> bool:
         return True
     # A single short word (<=4 chars) that isn't itself a real question is very
     # unlikely to be a genuine support query (e.g. "test", "meh", "abc").
-    if " " not in normalized and len(normalized) <= 4:
+    # Latin letters only: one Chinese character is a whole word, so "保修期"
+    # (warranty period) is a complete question. Non-Latin small talk goes on
+    # to the relevance check like any other message.
+    if " " not in normalized and len(normalized) <= 4 and normalized.isascii():
         return True
     return False

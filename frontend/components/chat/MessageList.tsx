@@ -43,7 +43,7 @@ export default function MessageList({
             <div
               role="status"
               aria-label="Assistant is typing"
-              className="glass glass-soft glass-edge glass-edge-soft relative flex h-10 items-center gap-1.5 rounded-2xl rounded-tl-[4px] border border-transparent bg-white px-4 pt-2 shadow-sm"
+              className="glass glass-soft glass-edge glass-edge-soft relative flex h-10 items-center gap-1.5 rounded-2xl rounded-tl-[4px] border border-sawo-border bg-white px-4 pt-2 shadow-[0_2px_8px_rgba(139,105,71,0.10)] dark:border-transparent dark:shadow-sm"
             >
               {[0, 160, 320].map((delay) => (
                 <span

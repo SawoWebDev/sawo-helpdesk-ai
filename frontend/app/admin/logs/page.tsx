@@ -20,6 +20,7 @@ import {
   ThumbsDown,
   ThumbsUp,
   Trash2,
+  Zap,
 } from "lucide-react";
 import PageHeader from "@/components/admin/PageHeader";
 
@@ -35,6 +36,70 @@ interface ChatLogRow {
   ip_address: string | null;
   rating: "up" | "down" | null;
   created_at: string;
+  question_usage?: MessageUsage;
+  answer_usage?: MessageUsage;
+}
+
+// What the AI calls behind one side of a message cost (see the backend's
+// logs.get_session_thread). input/output cost are null for calls logged
+// before OpenRouter's split was recorded.
+interface MessageUsage {
+  calls: number;
+  llm_calls: number;
+  embedding_calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  input_cost_usd: number | null;
+  output_cost_usd: number | null;
+  total_cost_usd: number;
+  models: string[];
+}
+
+function formatTokens(n: number): string {
+  return n.toLocaleString();
+}
+
+// Per-message amounts are often fractions of a cent (an embedding is ~$0.0000003),
+// which formatCost's 4 decimals would round to "$0.0000". Keep two significant digits.
+function formatMicroCost(cost: number): string {
+  if (cost === 0) return "$0";
+  const decimals = Math.min(10, Math.max(4, 1 - Math.floor(Math.log10(Math.abs(cost)))));
+  return "$" + cost.toFixed(decimals);
+}
+
+function UsageLine({ usage, side, engineUsed }: { usage?: MessageUsage; side: "question" | "answer"; engineUsed: string }) {
+  if (!usage) return null;
+  const base = "mt-0.5 text-[10px] leading-snug text-slate-400 dark:text-slate-500";
+
+  if (side === "question") {
+    if (usage.calls === 0) return <p className={base}>Question: no AI cost recorded</p>;
+    return (
+      <p className={base} title={usage.models.join(", ")}>
+        Question: embedding · {formatTokens(usage.input_tokens)} tokens · {formatMicroCost(usage.total_cost_usd)}
+      </p>
+    );
+  }
+
+  if (usage.llm_calls === 0) {
+    return (
+      <p className={`${base} font-medium text-sawo-dark dark:text-sawo-light`}>
+        Answer: no LLM used{engineUsed === "faq_direct" ? " (saved answer)" : ""} · $0
+      </p>
+    );
+  }
+  const split =
+    usage.input_cost_usd !== null && usage.output_cost_usd !== null
+      ? ` · input ${formatMicroCost(usage.input_cost_usd)} / output ${formatMicroCost(usage.output_cost_usd)}`
+      : "";
+  return (
+    <p
+      className={base}
+      title={`Model: ${usage.models.join(", ")}. Input = the question plus the knowledge-base text and instructions sent to the model; output = the text it generated.`}
+    >
+      Answer: LLM · {usage.llm_calls} {usage.llm_calls === 1 ? "call" : "calls"} · in {formatTokens(usage.input_tokens)} / out{" "}
+      {formatTokens(usage.output_tokens)} tokens{split} · total {formatMicroCost(usage.total_cost_usd)}
+    </p>
+  );
 }
 
 interface SessionSummary {
@@ -61,7 +126,9 @@ function shortId(id: string): string {
 }
 
 function sessionHeadline(s: SessionSummary): string {
-  return s.ip_address || `Conversation #${shortId(s.session_id)}`;
+  // Reserved for later: title/group conversations by visitor IP.
+  // return s.ip_address || `Conversation #${shortId(s.session_id)}`;
+  return `Conversation #${shortId(s.session_id)}`;
 }
 
 function highlightText(text: string, regex: RegExp | null): React.ReactNode {
@@ -432,7 +499,7 @@ export default function LogsPage() {
                 <p className="mt-1 text-sm text-slate-400 dark:text-slate-500">
                   {search || dateFrom || ratingFilter
                     ? "Try a different date range, search term, or feedback filter."
-                    : "Sessions appear here as visitors chat with the bot."}
+                    : "Sessions appear here as staff chat with the bot."}
                 </p>
               </div>
             )}
@@ -629,7 +696,7 @@ export default function LogsPage() {
                       <div key={item.key} className={`mb-2 flex ${isUser ? "justify-start" : "justify-end"}`}>
                         <div className={`max-w-[75%] ${isUser ? "" : "text-right"}`}>
                           <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                            {isUser ? "Visitor" : "Bot"}
+                            {isUser ? "Staff" : "Bot"}
                           </p>
                           {/* Same .glass/.glass-soft/.glass-edge treatment as the live chat
                               widget (see components/chat/MessageBubble.tsx) — those classes
@@ -681,7 +748,21 @@ export default function LogsPage() {
                             )}
                             {formatTime(item.createdAt!)}
                           </p>
-                          {!isUser && hasMatch && (
+                          <UsageLine
+                            usage={isUser ? log.question_usage : log.answer_usage}
+                            side={isUser ? "question" : "answer"}
+                            engineUsed={log.engine_used}
+                          />
+                          {!isUser && log.engine_used === "faq_direct" && (
+                            <span
+                              title="Answered directly from a saved FAQ, with no AI generation. Edit or delete that FAQ to change what is served."
+                              className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 dark:text-slate-400"
+                            >
+                              <Zap size={11} strokeWidth={2.25} />
+                              Saved answer
+                            </span>
+                          )}
+                          {!isUser && hasMatch && log.engine_used !== "faq_direct" && (
                             <button
                               onClick={() => handleSaveAsFaq(log)}
                               disabled={savingLogId === log.id}

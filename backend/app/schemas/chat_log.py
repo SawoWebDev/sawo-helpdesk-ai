@@ -59,6 +59,29 @@ class SessionSummary(BaseModel):
     preview_text: str | None = None
 
 
+class MessageUsage(BaseModel):
+    """AI spend for one side of one message: `question` = embedding the staff
+    question (and matching it against saved answers), `answer` = every LLM
+    call made to produce the reply (relevance check, generation, fact-check).
+    Input/output cost are OpenRouter's own split; None for calls logged
+    before that split was recorded."""
+
+    calls: int = 0
+    llm_calls: int = 0
+    embedding_calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    input_cost_usd: float | None = None
+    output_cost_usd: float | None = None
+    total_cost_usd: float = 0.0
+    models: list[str] = []
+
+
+class ChatLogWithUsageOut(ChatLogOut):
+    question_usage: MessageUsage
+    answer_usage: MessageUsage
+
+
 class DeleteSessionsRequest(BaseModel):
     session_ids: list[str]
 

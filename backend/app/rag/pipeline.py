@@ -15,7 +15,17 @@ from app.models.chat_log import ChatLog
 from app.models.faq import FAQEntry
 from app.models.unanswered import UnansweredQuestion
 from app.models.vault_entry import VaultEntry
+from app.rag import response_language
+from app.rag.answer_style import strip_source_talk
+from app.rag.applicability import Scope, applies, linked_controllers, other_labels, scope_of, vault_scope
 from app.rag.filler import is_filler
+from app.rag.saved_answers import (
+    _CONTEXT_REFERENCE_RE,
+    ENGINE_FAQ_DIRECT,
+    DirectMatchDecision,
+    find_exact_answer,
+    find_paraphrase_answer,
+)
 from app.services.ai_usage import (
     FEATURE_CHAT_ANSWER_GENERATION,
     FEATURE_CHAT_OFF_TOPIC_REPLY,
@@ -171,6 +181,11 @@ SYSTEM_PROMPT = (
     "sentence (e.g. not 'the Dragonfire Series page (https://example.com/dragonfire/)'). "
     "Instead format it as a Markdown inline link with short, descriptive text as the "
     "label, e.g. 'the [Dragonfire Series page](https://example.com/dragonfire/)'. "
+    "Answer directly, the way a colleague would: start with the answer itself. Never "
+    "mention 'the context', 'the knowledge base', 'the documentation' or 'the provided "
+    "information', never say where the information comes from, and never begin with "
+    "'Based on...' or 'According to...'. Do not add a closing remark, conclusion or "
+    "explanation that the context does not itself state. "
     f"If none of the context is actually relevant, or it doesn't contain enough "
     f"information to answer the question, respond with exactly: {REFUSAL_SENTINEL}"
 )
@@ -219,6 +234,85 @@ _UNICODE_PUNCTUATION_MAP = {
     "…": "...",  # ellipsis
 }
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _generation_prompt(
+    scope: Scope, language: response_language.ResponseLanguage, linked: frozenset[str] = frozenset()
+) -> str:
+    """SYSTEM_PROMPT plus this question's two hard constraints: the product it
+    names (applicability.py already removed other products' content; this
+    covers what is left, e.g. a page that mentions several) and the reply
+    language (response_language.py). `linked` = controllers the model's own
+    product page lists, whose content applicability.py kept for that reason."""
+    parts = [SYSTEM_PROMPT]
+    if not scope.is_empty:
+        target = scope.describe()
+        covered = f"explicitly covers {target}"
+        if linked:
+            controllers = " or ".join(sorted(label.capitalize() for label in linked))
+            covered += (
+                f", or it is about the {controllers} control, which the documentation lists for "
+                f"{target} (then say which control the answer is for)"
+            )
+        parts.append(
+            f"The question is specifically about: {target}. Treat that as a hard constraint. Use an "
+            f"excerpt only if it is general (not tied to a particular product) or it {covered}. "
+            f"Never apply troubleshooting steps, specifications or instructions that an excerpt "
+            f"gives for a different model, heater type or controller, and never assume two models behave "
+            f"the same unless an excerpt says so. If no excerpt establishes the answer for {target}, "
+            f"respond with exactly: {REFUSAL_SENTINEL}"
+        )
+    parts.append(language.instruction())
+    return " ".join(parts)
+
+
+# How many of the removed, other-product matches the limitation reply names.
+MAX_NAMED_EXCLUSIONS = 3
+
+
+def _limitation_message(
+    scope: Scope,
+    excluded: list[tuple[Scope, float]],
+    best_kept: float,
+    linked: frozenset[str],
+    fallback_message: str,
+) -> str:
+    """Reply for a question about a specific product that the knowledge base
+    doesn't cover: says so, instead of the generic fallback or an answer
+    borrowed from another product. Names only the removed matches that
+    outranked everything that was kept — the content that would otherwise
+    have been used — not every weak match that shares a word."""
+    target = scope.describe()
+    message = f"The available documentation doesn't establish an answer to this for {target}."
+    notable = sorted((pair for pair in excluded if pair[1] > best_kept), key=lambda pair: pair[1], reverse=True)
+    others = other_labels(scope, [s for s, _sim in notable[:MAX_NAMED_EXCLUSIONS]], linked)
+    if others:
+        message += (
+            f" The related material found is for {', '.join(others)}, and nothing in it says it also "
+            f"applies to {target}, so it has not been applied here."
+        )
+    return f"{message} {fallback_message}"
+
+
+def _conversation_scope(history_rows: list[ChatLog]) -> Scope:
+    """The product the conversation is about, for a follow-up that names none.
+    Walks back from the newest earlier turn, past turns that were themselves
+    bare follow-ups ("why is it humming?"), to the last one that named a
+    product; a turn that was a new, product-less question ends the search, so
+    "what stones does SAWO recommend?" resets it."""
+    for row in history_rows:  # newest first
+        scope = scope_of(row.question_text)
+        if not scope.is_empty:
+            return scope
+        if not _CONTEXT_REFERENCE_RE.search(row.question_text):
+            break
+    return Scope()
+
+
+def _entry_scope(kind: str, entry) -> Scope:
+    if kind == "faq":
+        return scope_of(f"{entry.question}\n{entry.answer}")
+    return vault_scope(entry.title, entry.source_url, entry.content, entry.source_type)
 
 
 def _sanitize_text(text: str) -> str:
@@ -417,10 +511,20 @@ async def _answer_question_impl(
         history_result = await db.execute(
             select(ChatLog)
             .where(ChatLog.session_id == session_id, ChatLog.created_at >= today_start)
-            .order_by(ChatLog.created_at.desc())
+            # id breaks ties: created_at has one-second resolution, and which
+            # turn counts as "previous" decides what a follow-up refers to.
+            .order_by(ChatLog.created_at.desc(), ChatLog.id.desc())
             .limit(CONVERSATION_HISTORY_LIMIT)
         )
         history_rows = list(history_result.scalars().all())
+
+    # Stage 1 of saved-answer reuse (rag/saved_answers.py): the same question
+    # as a staff-approved, published FAQ is answered by one indexed lookup,
+    # before any AI call — no embedding, no generation, no fact-check, and the
+    # identical approved wording every time.
+    exact = await find_exact_answer(db, question, has_history=bool(history_rows))
+    if exact.hit:
+        return await _direct_answer_result(db, exact, question, session_id, ip_address)
 
     # A pronoun-style follow-up ("does it come in a wall-mounted model?") has
     # almost no retrievable content on its own — verified live, it fails to
@@ -444,6 +548,21 @@ async def _answer_question_impl(
             db, question, fallback_message, None, engine_used="none",
             session_id=session_id, ip_address=ip_address,
         )
+
+    # Stage 2: a close rewording of a published FAQ with the same error
+    # code/product/model, asking for nothing more than that FAQ covers, is
+    # returned as stored — no LLM call. Anything not provably the same question
+    # falls through to the normal flow below, untouched.
+    paraphrase = await find_paraphrase_answer(db, question, query_vector, has_history=bool(history_rows))
+    if paraphrase.hit:
+        return await _direct_answer_result(db, paraphrase, question, session_id, ip_address)
+
+    # Both decided from the question text alone — no AI call. A follow-up that
+    # only says "it" is about the product the conversation last named.
+    language = response_language.detect(question)
+    question_scope = scope_of(question)
+    if question_scope.is_empty and _CONTEXT_REFERENCE_RE.search(question):
+        question_scope = _conversation_scope(history_rows)
 
     # Whether a same-day history exists is decided deterministically above
     # (session + calendar day); whether it's actually relevant to THIS
@@ -517,6 +636,28 @@ async def _answer_question_impl(
         (("vault", vault_by_id[entry_id]), similarity) for entry_id, similarity in vault_hits if entry_id in vault_by_id
     ]
 
+    # A named model or controller is a hard constraint (see applicability.py):
+    # content scoped only to other products is removed here, before ranking,
+    # so it can neither win the FAQ-primary tier nor reach the prompt.
+    # `excluded` remembers what was removed and would otherwise have been
+    # eligible, to explain the gap if nothing applicable is left.
+    linked: frozenset[str] = frozenset()
+    excluded: list[tuple[Scope, float]] = []
+    if not question_scope.is_empty:
+        linked = await linked_controllers(db, question_scope)
+
+        def _applicable(pair) -> bool:
+            (kind, entry), similarity = pair
+            scope = _entry_scope(kind, entry)
+            if applies(question_scope, scope, linked):
+                return True
+            if similarity >= off_topic_threshold:
+                excluded.append((scope, similarity))
+            return False
+
+        faq_rows = [pair for pair in faq_rows if _applicable(pair)]
+        vault_rows = [pair for pair in vault_rows if _applicable(pair)]
+
     # Resolution order: FAQ is the primary tier, Library (Vault) is the
     # secondary tier — but FAQ only wins outright on a high-confidence,
     # near-exact match (>= confidence_threshold). A weak/tangential FAQ hit
@@ -535,6 +676,12 @@ async def _answer_question_impl(
         rows = [pair for pair in all_rows if pair[1] >= off_topic_threshold][:top_k]
 
     if not rows:
+        if excluded:
+            # Only other products' documentation matched: say so, with no LLM call.
+            return await _fallback(
+                db, question, _limitation_message(question_scope, excluded, 0.0, linked, fallback_message), None,
+                engine_used="none", session_id=session_id, ip_address=ip_address,
+            )
         if not await _is_on_topic(engine, question):
             return await _off_topic(db, engine, question, off_topic_message, None, session_id, ip_address)
         return await _fallback(
@@ -579,6 +726,10 @@ async def _answer_question_impl(
             db, question, excluded_category_ids, exclude_ids=pinned_ids,
             only_tokens=hub_tokens or None,
         )
+        pinned_entries = [
+            entry for entry in pinned_entries
+            if applies(question_scope, _entry_scope("vault", entry), linked)
+        ]
 
         # A pinned chunk keeps its real retrieval score when it was in the
         # candidate pool at all; otherwise it takes the floor that makes it
@@ -644,7 +795,8 @@ async def _answer_question_impl(
     try:
         with feature_context(FEATURE_CHAT_ANSWER_GENERATION):
             generated = await engine.generate(
-                SYSTEM_PROMPT, context, question, temperature=0, history=history_for_generation
+                _generation_prompt(question_scope, language, linked), context, question,
+                temperature=0, history=history_for_generation,
             )
     except AIEngineError:
         return await _fallback(
@@ -653,6 +805,20 @@ async def _answer_question_impl(
         )
 
     if not generated or REFUSAL_SENTINEL in generated:
+        message = (
+            fallback_message if question_scope.is_empty
+            else _limitation_message(question_scope, excluded, best_similarity, linked, fallback_message)
+        )
+        return await _fallback(
+            db, question, message, best_similarity, engine_used=engine.name,
+            session_id=session_id, ip_address=ip_address,
+        )
+
+    # The language instruction is only a prompt, and a prompt is what failed
+    # (response_language.py). A reply in the wrong writing system — typically
+    # a refusal the model wrote as a Chinese apology instead of the sentinel —
+    # is not shown.
+    if not response_language.answer_matches(generated, language):
         return await _fallback(
             db, question, fallback_message, best_similarity, engine_used=engine.name,
             session_id=session_id, ip_address=ip_address,
@@ -679,7 +845,7 @@ async def _answer_question_impl(
             session_id=session_id, ip_address=ip_address,
         )
 
-    generated = _sanitize_text(generated)
+    generated = strip_source_talk(_sanitize_text(generated))
 
     # Links are the sources the answer was actually written from: every URL
     # attached to a chunk that went into the context, best-ranked first and
@@ -773,6 +939,41 @@ async def _answer_question_impl(
     )
 
 
+async def _direct_answer_result(
+    db: AsyncSession,
+    direct: DirectMatchDecision,
+    question: str,
+    session_id: str | None,
+    ip_address: str | None,
+) -> RagResult:
+    faq = direct.faq
+    image_urls = list(faq.image_urls or [])
+    reference_urls = list(faq.reference_urls or [])
+    chat_log = ChatLog(
+        question_text=question,
+        answer_text=faq.answer,
+        matched_faq_ids=[faq.id],
+        confidence_score=direct.similarity,
+        engine_used=ENGINE_FAQ_DIRECT,
+        session_id=session_id,
+        ip_address=ip_address,
+    )
+    db.add(chat_log)
+    await db.commit()
+
+    return RagResult(
+        answer=faq.answer,
+        is_fallback=False,
+        confidence_score=direct.similarity,
+        matched_faq_ids=[faq.id],
+        image_urls=image_urls,
+        reference_urls=reference_urls,
+        engine_used=ENGINE_FAQ_DIRECT,
+        low_confidence=False,
+        chat_log_id=chat_log.id,
+    )
+
+
 async def _off_topic(
     db: AsyncSession,
     engine,
@@ -788,10 +989,11 @@ async def _off_topic(
     an agent to review. Tries to generate a natural, non-repetitive reply to
     what was actually said; falls back to the fixed configured message (still
     on-topic, still safe) if that call fails."""
+    language = response_language.detect(question)
     try:
         with feature_context(FEATURE_CHAT_OFF_TOPIC_REPLY):
-            generated = await engine.generate(OFF_TOPIC_SYSTEM_PROMPT, "", question)
-        if generated and _looks_like_real_reply(generated):
+            generated = await engine.generate(f"{OFF_TOPIC_SYSTEM_PROMPT} {language.reply_rule()}", "", question)
+        if generated and _looks_like_real_reply(generated) and response_language.answer_matches(generated, language):
             answer = _sanitize_text(generated)
             engine_used = engine.name
         else:

@@ -327,7 +327,7 @@ export default function AnalyticsPage() {
           subtitle={overview ? `${formatDelta(overview.answered_rate_delta_7d_points, " pts")} · matched real content` : "Matched real FAQ/Library content"}
         />
         <MetricCard label="Unanswered Pending" hint="Questions the assistant could not answer, still waiting for someone on your team to write an answer. Clearing these is the fastest way to improve the chat." value={overview ? overview.unanswered_pending.toLocaleString() : "..."} subtitle="Awaiting agent review" icon={<CircleHelp size={17} />} tone="amber" />
-        <MetricCard label="Unique Sessions (7d)" hint="How many separate people used the chat in the last 7 days. One person asking five questions counts once here, so compare it with Chats to see how much each visitor asks." value={overview ? overview.unique_sessions_7d.toLocaleString() : "..."} subtitle="Distinct visitors" icon={<Users size={17} />} tone="violet" />
+        <MetricCard label="Unique Sessions (7d)" hint="How many separate people used the chat in the last 7 days. One person asking five questions counts once here, so compare it with Chats to see how much each person asks." value={overview ? overview.unique_sessions_7d.toLocaleString() : "..."} subtitle="Distinct visitors" icon={<Users size={17} />} tone="violet" />
         <MetricCard
           label="Satisfaction (7d)"
           hint="Out of the people who bothered to rate an answer with a thumbs up or down in the last 7 days, how many rated it helpful. Only counts messages that got a rating, so a low count of ratings means this number isn't fully reliable yet."
@@ -348,7 +348,7 @@ export default function AnalyticsPage() {
       <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
         <MetricCard
           label="Active Model"
-          hint="The AI model currently answering your visitors. Different models cost different amounts and vary in speed and quality; you can change it in Settings."
+          hint="The AI model currently answering your staff. Different models cost different amounts and vary in speed and quality; you can change it in Settings."
           value={
             overview ? (
               <span className="flex items-center gap-1.5 truncate text-base" title={overview.active_model}>
@@ -388,7 +388,7 @@ export default function AnalyticsPage() {
           icon={<Clock3 size={17} />}
           tone="amber"
         />
-        <MetricCard label="FAQ Entries" hint="All the questions and answers stored in your knowledge base, with how many are live for visitors. Drafts are counted in the total but are not used in replies." value={overview ? overview.faq_total.toLocaleString() : "..."} subtitle={overview ? `${overview.faq_published} published` : undefined} icon={<BookOpen size={17} />} tone="brand" />
+        <MetricCard label="FAQ Entries" hint="All the questions and answers stored in your knowledge base, with how many are live for staff. Drafts are counted in the total but are not used in replies." value={overview ? overview.faq_total.toLocaleString() : "..."} subtitle={overview ? `${overview.faq_published} published` : undefined} icon={<BookOpen size={17} />} tone="brand" />
         <MetricCard
           label="OpenRouter Balance"
           hint="The prepaid credit left in your OpenRouter account, which pays for the AI. When it runs out the chat stops answering, so top it up before it hits zero."

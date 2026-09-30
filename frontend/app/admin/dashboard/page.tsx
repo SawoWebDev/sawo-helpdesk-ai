@@ -153,7 +153,7 @@ export default function DashboardPage() {
             <span className="truncate">Pending Unanswered Questions</span>
             <InfoTooltip
               label="Pending Unanswered Questions"
-              text="Questions visitors asked that the assistant could not answer well. Each one is waiting for someone to write an answer, so the list doubles as a to-do list for growing your knowledge base."
+              text="Questions staff asked that the assistant could not answer well. Each one is waiting for someone to write an answer, so the list doubles as a to-do list for growing your knowledge base."
             />
           </p>
           <p className="mt-1 text-3xl font-semibold text-slate-800 dark:text-slate-100">{pendingCount ?? "..."}</p>
@@ -193,7 +193,7 @@ export default function DashboardPage() {
         />
         <MetricCard
           label="Active Model"
-          hint="The AI model currently answering your visitors. Different models cost different amounts and vary in speed and quality; you can change it in Settings."
+          hint="The AI model currently answering your staff. Different models cost different amounts and vary in speed and quality; you can change it in Settings."
           value={
             overview ? (
               <span className="flex items-center gap-1.5 truncate text-base" title={overview.active_model}>

@@ -79,6 +79,11 @@ async def record_usage(
 ) -> None:
     if not usage:
         return
+    cost_details = usage.get("cost_details") or {}
+
+    def _optional_float(value):
+        return float(value) if value is not None else None
+
     try:
         async with AsyncSessionLocal() as db:
             db.add(
@@ -90,6 +95,8 @@ async def record_usage(
                     completion_tokens=int(usage.get("completion_tokens") or 0),
                     total_tokens=int(usage.get("total_tokens") or 0),
                     cost_usd=float(usage.get("cost") or 0.0),
+                    input_cost_usd=_optional_float(cost_details.get("upstream_inference_prompt_cost")),
+                    output_cost_usd=_optional_float(cost_details.get("upstream_inference_completions_cost")),
                     session_id=_current_session_id.get(),
                     feature=_current_feature.get(),
                     provider=provider,

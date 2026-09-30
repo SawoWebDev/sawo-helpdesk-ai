@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { apiGet } from "@/lib/api";
 import FAQForm, { FAQFormValues } from "@/components/admin/FAQForm";
 import PageHeader from "@/components/admin/PageHeader";
+import FAQPhrasingsPanel from "@/components/admin/faqs/FAQPhrasingsPanel";
 
 export default function EditFAQPage() {
   const params = useParams<{ id: string }>();
@@ -18,7 +19,14 @@ export default function EditFAQPage() {
   return (
     <div>
       <PageHeader icon="fa-solid fa-circle-question" title="Edit FAQ Entry" />
-      {initial ? <FAQForm faqId={faqId} initial={initial} /> : <p className="text-slate-400 dark:text-slate-500">Loading...</p>}
+      {initial ? (
+        <>
+          <FAQForm faqId={faqId} initial={initial} />
+          <FAQPhrasingsPanel faqId={faqId} />
+        </>
+      ) : (
+        <p className="text-slate-400 dark:text-slate-500">Loading...</p>
+      )}
     </div>
   );
 }

@@ -5,8 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.base import AIEngineError
 from app.ai.factory import get_embedding_engine
-from app.db.vec_store import FAQ_VEC_TABLE, delete_embedding, knn_search
+from app.db.vec_store import FAQ_VEC_TABLE, knn_search
 from app.models.faq import FAQEntry
+from app.models.faq_phrasing import FAQPhrasing
+from app.rag.question_normalize import normalize_question
+from app.rag.reindex import delete_faq_vectors
+from app.rag.technical_key import compatible, extract_key
 from app.services.ai_usage import FEATURE_FAQ_DEDUP, feature_context
 from app.services.uploads import delete_unreferenced_uploads
 
@@ -48,7 +52,8 @@ async def find_duplicate_faq(
     exclude_id: int | None = None,
     include_drafts: bool = False,
 ) -> FAQEntry | None:
-    """Finds an existing FAQ that's either an exact (case/whitespace
+    """Finds an existing FAQ that's either an exact (normalized, see
+    rag.question_normalize; case/whitespace/punctuation
     insensitive) match for `question`, or — if `question_vector` is given —
     semantically near-identical to it. Only considers published FAQs by
     default, since a draft isn't live yet and re-saving over it is fine. Used
@@ -62,15 +67,28 @@ async def find_duplicate_faq(
     exact-match half: the semantic half can never match a draft regardless,
     since a draft has no embedding (embed_entry no-ops for drafts), so it
     can't appear as a knn_search candidate."""
-    normalized = question.strip().lower()
+    normalized = normalize_question(question)
     statuses = ("published", "draft") if include_drafts else ("published",)
     exact_stmt = select(FAQEntry).where(
-        FAQEntry.status.in_(statuses), func.lower(func.trim(FAQEntry.question)) == normalized
+        FAQEntry.status.in_(statuses), FAQEntry.question_normalized == normalized
     )
     if exclude_id is not None:
         exact_stmt = exact_stmt.where(FAQEntry.id != exclude_id)
     exact = await db.execute(exact_stmt)
     match = exact.scalars().first()
+    if match is not None:
+        return match
+
+    # A reviewed alternate phrasing of another FAQ is that FAQ's question too:
+    # saving it again as its own FAQ would split one topic into two.
+    phrasing_stmt = (
+        select(FAQEntry)
+        .join(FAQPhrasing, FAQPhrasing.faq_id == FAQEntry.id)
+        .where(FAQPhrasing.phrasing_normalized == normalized, FAQEntry.status.in_(statuses))
+    )
+    if exclude_id is not None:
+        phrasing_stmt = phrasing_stmt.where(FAQEntry.id != exclude_id)
+    match = (await db.execute(phrasing_stmt)).scalars().first()
     if match is not None:
         return match
 
@@ -86,7 +104,14 @@ async def find_duplicate_faq(
     result = await db.execute(
         select(FAQEntry).where(FAQEntry.id.in_(candidate_ids), FAQEntry.status == "published")
     )
-    candidates = list(result.scalars().all())
+    # Similarity alone can't tell "E1" from "E4" (0.92) or "E13" (0.88), so a
+    # candidate with different error codes / product / model is never a
+    # duplicate, however close it scores — otherwise saving the E4 answer would
+    # be refused because the E1 one already exists.
+    question_key = extract_key(question)
+    candidates = [
+        c for c in result.scalars().all() if compatible(question_key, extract_key(c.question))[0]
+    ]
     if not candidates:
         return None
 
@@ -190,7 +215,7 @@ async def create_faq(
 
 async def delete_faq(db: AsyncSession, entry: FAQEntry) -> None:
     image_urls = list(entry.image_urls or [])
-    await delete_embedding(db, FAQ_VEC_TABLE, entry.id)
+    await delete_faq_vectors(db, entry.id)
     await db.delete(entry)
     await db.commit()
     # After the entry's row is actually gone, so the "still referenced by any
