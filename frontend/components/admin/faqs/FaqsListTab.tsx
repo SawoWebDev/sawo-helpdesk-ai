@@ -38,6 +38,8 @@ export default function FaqsListTab() {
   const [importSummary, setImportSummary] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [modal, setModal] = useState<{ faqId?: number } | null>(null);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportIncludeDrafts, setExportIncludeDrafts] = useState(true);
   const pageSize = 20;
 
   async function load() {
@@ -127,10 +129,12 @@ export default function FaqsListTab() {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
       if (categoryId !== null) params.set("category_id", String(categoryId));
-      const query = params.toString();
-      await downloadFile(`/api/faqs/export${query ? `?${query}` : ""}`, "faq_export.xlsx");
+      params.set("include_drafts", String(exportIncludeDrafts));
+      await downloadFile(`/api/faqs/export?${params.toString()}`, "faq_export.xlsx");
     } catch (err) {
       setDownloadError(err instanceof ApiError ? err.message : "Failed to export FAQs");
+    } finally {
+      setExportModalOpen(false);
     }
   }
 
@@ -152,7 +156,7 @@ export default function FaqsListTab() {
           </button>
           <button
             type="button"
-            onClick={handleExport}
+            onClick={() => setExportModalOpen(true)}
             className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15"
           >
             Export Excel
@@ -286,6 +290,49 @@ export default function FaqsListTab() {
       </div>
 
       {modal && <FAQModal faqId={modal.faqId} onClose={() => setModal(null)} onSaved={handleModalSaved} />}
+
+      {exportModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setExportModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-xl bg-white shadow-2xl dark:bg-night-surface"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-b border-slate-200 px-5 py-4 dark:border-white/10">
+              <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">Export FAQs</h2>
+            </div>
+            <div className="flex flex-col gap-4 p-5">
+              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={exportIncludeDrafts}
+                  onChange={(e) => setExportIncludeDrafts(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 dark:border-white/15"
+                />
+                Include draft FAQs
+              </label>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setExportModalOpen(false)}
+                  className="rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-white/15 dark:text-slate-300 dark:hover:bg-white/5"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExport}
+                  className="rounded bg-sawo px-3 py-2 text-sm font-medium text-white hover:bg-sawo-dark dark:bg-sawo-dark dark:hover:bg-sawo-darker"
+                >
+                  Download
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

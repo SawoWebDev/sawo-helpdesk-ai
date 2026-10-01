@@ -27,8 +27,9 @@ from app.rag.vault_reindex import embed_vault_entry
 FAQ_SHEET_NAME = "FAQs"
 LIBRARY_SHEET_NAME = "Library"
 
-FAQ_HEADERS = ["Category", "Question", "Answer", "Image URL", "Reference URL"]
+FAQ_HEADERS = ["Category", "Question", "Answer", "Image URL", "Reference URL", "Status"]
 FAQ_REQUIRED_HEADERS = ["Category", "Question", "Answer"]
+FAQ_STATUSES = ("published", "draft")
 
 LIBRARY_HEADERS = ["Category", "Title", "Content", "Tags", "Source URL", "Memory Enabled"]
 LIBRARY_REQUIRED_HEADERS = ["Category", "Title", "Content"]
@@ -39,6 +40,18 @@ LIBRARY_REQUIRED_HEADERS = ["Category", "Title", "Content"]
 PHRASING_SHEET_NAME = "Phrasings"
 PHRASING_HEADERS = ["FAQ Question", "Phrasing", "Enabled"]
 PHRASING_REQUIRED_HEADERS = ["FAQ Question", "Phrasing"]
+
+
+def parse_faq_status(raw: str) -> str | None:
+    """Normalizes a "Status" cell to "published"/"draft". Blank -> "published",
+    so a file exported before this column existed (or a blank cell in a
+    hand-edited one) still imports exactly as before. Returns None for a
+    value that isn't one of the two recognized statuses, so the caller can
+    report it as a row error instead of silently guessing."""
+    value = raw.strip().lower()
+    if not value:
+        return "published"
+    return value if value in FAQ_STATUSES else None
 
 
 def text_cells_only(ws) -> None:
@@ -95,6 +108,7 @@ async def export_knowledge_base(db: AsyncSession) -> bytes:
                 entry.answer,
                 (entry.image_urls or [""])[0],
                 (entry.reference_urls or [""])[0],
+                entry.status,
             ]
         )
 
@@ -167,6 +181,7 @@ async def _import_faq_sheet(db: AsyncSession, ws) -> ImportSummary:
         answer = cells.get("Answer", "")
         image_url = cells.get("Image URL", "")
         reference_url = cells.get("Reference URL", "")
+        status_raw = cells.get("Status", "")
 
         # Category is optional: FAQEntry.category_id is nullable and the staff
         # FAQ editor already creates FAQs with no category — a blank cell
@@ -178,6 +193,20 @@ async def _import_faq_sheet(db: AsyncSession, ws) -> ImportSummary:
             summary.skipped += 1
             summary.errors.append(
                 RowError(row_number=row_number, reason=f"Missing required field(s): {', '.join(missing_fields)}")
+            )
+            continue
+
+        # Status round-trips 1:1 with what was exported (blank -> published,
+        # for files exported before this column existed) rather than always
+        # publishing on import — a draft re-imported must come back a draft.
+        status = parse_faq_status(status_raw)
+        if status is None:
+            summary.skipped += 1
+            summary.errors.append(
+                RowError(
+                    row_number=row_number,
+                    reason=f'Status must be "Published" or "Draft" (or blank), got "{status_raw}"',
+                )
             )
             continue
 
@@ -206,6 +235,7 @@ async def _import_faq_sheet(db: AsyncSession, ws) -> ImportSummary:
                 image_urls=[image_url] if image_url else [],
                 reference_urls=[reference_url] if reference_url else [],
                 source="import",
+                status=status,
             )
             await embed_entry(db, entry)
             await db.commit()

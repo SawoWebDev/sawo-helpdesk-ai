@@ -23,9 +23,10 @@ async def download_template():
 async def export_faqs_endpoint(
     category_id: int | None = None,
     search: str | None = None,
+    include_drafts: bool = True,
     db: AsyncSession = Depends(get_db),
 ):
-    content = await export_faqs(db, category_id=category_id, search=search)
+    content = await export_faqs(db, category_id=category_id, search=search, include_drafts=include_drafts)
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

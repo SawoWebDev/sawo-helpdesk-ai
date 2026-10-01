@@ -168,12 +168,16 @@ async def list_faqs_all(
     db: AsyncSession,
     category_id: int | None = None,
     search: str | None = None,
+    status_filter: str | None = None,
 ) -> list[FAQEntry]:
     """Unpaginated variant of list_faqs, for export."""
     stmt = select(FAQEntry)
 
     if category_id is not None:
         stmt = stmt.where(FAQEntry.category_id == category_id)
+
+    if status_filter is not None:
+        stmt = stmt.where(FAQEntry.status == status_filter)
 
     if search:
         like = f"%{search}%"

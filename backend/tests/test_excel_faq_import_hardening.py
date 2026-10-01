@@ -304,3 +304,53 @@ async def test_repeated_full_imports_converge_to_the_same_state(db, embedder):
     faqs = await all_faqs(db)
     assert len(faqs) == 1 and faqs[0].category_id is None
     assert await all_phrasings(db) == {P_ON: (faqs[0].id, True)}
+
+
+# --- Test 13: FAQ status round-trips through export and import ---------------------------
+
+
+async def test_draft_status_round_trips_through_export_and_import(db, other_db, embedder):
+    draft = await add_faq(db, Q, A, status="draft")
+    published = await add_faq(db, "A different published question", A_DIFFERENT)
+
+    exported = await export_knowledge_base(db)
+    ws = load_workbook(io.BytesIO(exported))[FAQ_SHEET_NAME]
+    rows = list(ws.iter_rows(values_only=True))
+    status_by_question = {row[1]: row[5] for row in rows[1:]}
+    assert status_by_question[draft.question] == "draft"
+    assert status_by_question[published.question] == "published"
+
+    summary = await import_knowledge_base(other_db, exported)
+    assert summary.faqs.created == 2
+    faqs_by_question = {f.question: f for f in await all_faqs(other_db)}
+    assert faqs_by_question[draft.question].status == "draft"
+    assert faqs_by_question[draft.question].has_embedding is False  # drafts are never embedded
+    assert faqs_by_question[published.question].status == "published"
+
+
+async def test_blank_status_column_defaults_to_published(db, embedder):
+    # A workbook exported before the Status column existed (or a hand-edited
+    # file with a blank cell) must still import as published, not fail.
+    wb = workbook(faq_rows=[["Innova", Q, A, "", ""]], with_phrasings=False)
+    summary = await import_knowledge_base(db, wb)
+    assert summary.faqs.created == 1
+    [faq] = await all_faqs(db)
+    assert faq.status == "published"
+
+
+async def test_invalid_status_value_is_reported_not_guessed(db, embedder):
+    wb = workbook(faq_rows=[["Innova", Q, A, "", "", "Archived"]], with_phrasings=False)
+    summary = await import_knowledge_base(db, wb)
+    assert summary.faqs.created == 0 and summary.faqs.skipped == 1
+    assert "Status must be" in summary.faqs.errors[0].reason
+    assert await all_faqs(db) == []
+
+
+async def test_export_can_exclude_drafts(db, embedder):
+    await add_faq(db, Q, A, status="draft")
+    await add_faq(db, "A published-only question", A_DIFFERENT)
+
+    content = await excel_import.export_faqs(db, include_drafts=False)
+    ws = load_workbook(io.BytesIO(content)).active
+    questions = [row[1] for row in ws.iter_rows(values_only=True, min_row=2)]
+    assert questions == ["A published-only question"]
