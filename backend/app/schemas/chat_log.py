@@ -93,6 +93,8 @@ class ChatReportOut(BaseModel):
     comment: str | None
     status: str
     created_at: datetime
+    resolved_at: datetime | None
+    resolved_by: str | None
 
 
 class PopularQuestion(BaseModel):

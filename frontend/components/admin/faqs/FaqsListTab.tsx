@@ -204,9 +204,15 @@ export default function FaqsListTab() {
           }}
           className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
         >
-          <option value="">All statuses</option>
-          <option value="published">Published</option>
-          <option value="draft">Draft</option>
+          {/* The closed control's dark: classes only paint the collapsed box —
+              the native options popup ignores them and defaults to a white
+              background, so the light dark:text color above was unreadable
+              against it. Styling the <option>s directly is what Chromium/Edge
+              actually use to paint that popup (same fix as Chat Logs' rating
+              filter). */}
+          <option value="" className="dark:bg-night-surface dark:text-slate-100">All statuses</option>
+          <option value="published" className="dark:bg-night-surface dark:text-slate-100">Published</option>
+          <option value="draft" className="dark:bg-night-surface dark:text-slate-100">Draft</option>
         </select>
       </div>
 

@@ -1,4 +1,5 @@
 import { ReactNode } from "react";
+import ReportsBell from "@/components/admin/ReportsBell";
 
 /**
  * Shared per-page header for the admin CMS chrome, structurally matching the
@@ -37,7 +38,14 @@ export default function PageHeader({
           {description && <p className="cms-page-description">{description}</p>}
         </div>
       </div>
-      {actions && <div className="cms-page-header-actions">{actions}</div>}
+      {/* Always rendered (not just when a page passes `actions`) so the
+          reports bell shows up consistently in every page's header, inside
+          its flex row — not floated/fixed on top of it, which is what was
+          clipping/overlapping it before. */}
+      <div className="cms-page-header-actions">
+        {actions}
+        <ReportsBell />
+      </div>
     </div>
   );
 }

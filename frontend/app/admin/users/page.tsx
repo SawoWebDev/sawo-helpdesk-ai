@@ -91,8 +91,8 @@ export default function UsersPage() {
         <div className="flex flex-col gap-1">
           <label className="text-xs text-slate-500 dark:text-slate-400">Role</label>
           <select value={role} onChange={(e) => setRole(e.target.value as "admin" | "agent")} className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100">
-            <option value="agent">Agent</option>
-            <option value="admin">Admin</option>
+            <option value="agent" className="dark:bg-night-surface dark:text-slate-100">Agent</option>
+            <option value="admin" className="dark:bg-night-surface dark:text-slate-100">Admin</option>
           </select>
         </div>
         <button type="submit" className="rounded bg-sawo px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-sawo-dark dark:bg-sawo-dark dark:hover:bg-sawo-darker">

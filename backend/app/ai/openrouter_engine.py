@@ -1,5 +1,7 @@
 import asyncio
+import json
 import time
+from collections.abc import AsyncIterator
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -140,6 +142,27 @@ class OpenRouterEngine(AIEngine):
         except (KeyError, IndexError, ValueError) as exc:
             raise AIEngineError(f"OpenRouter embedding response malformed: {exc}") from exc
 
+    def _chat_payload(
+        self,
+        system_prompt: str,
+        context: str,
+        user_query: str,
+        temperature: float | None,
+        history: list[tuple[str, str]] | None,
+    ) -> dict:
+        messages = [{"role": "system", "content": system_prompt}]
+        for prior_question, prior_answer in history or []:
+            messages.append({"role": "user", "content": prior_question})
+            messages.append({"role": "assistant", "content": prior_answer})
+        messages.append({"role": "user", "content": f"Context:\n{context}\n\nQuestion: {user_query}"})
+        payload = {"model": self.model, "messages": messages, "provider": PROVIDER_PREFERENCE}
+        if temperature is not None:
+            payload["temperature"] = temperature
+        return payload
+
+    def _headers(self) -> dict:
+        return {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+
     async def generate(
         self,
         system_prompt: str,
@@ -151,25 +174,11 @@ class OpenRouterEngine(AIEngine):
         if not self.api_key:
             raise AIEngineError("OpenRouter API key is not configured.")
 
-        messages = [{"role": "system", "content": system_prompt}]
-        for prior_question, prior_answer in history or []:
-            messages.append({"role": "user", "content": prior_question})
-            messages.append({"role": "assistant", "content": prior_answer})
-        messages.append({"role": "user", "content": f"Context:\n{context}\n\nQuestion: {user_query}"})
-        payload = {"model": self.model, "messages": messages, "provider": PROVIDER_PREFERENCE}
-        if temperature is not None:
-            payload["temperature"] = temperature
+        payload = self._chat_payload(system_prompt, context, user_query, temperature, history)
 
         async def _call():
             async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-                resp = await client.post(
-                    f"{OPENROUTER_BASE_URL}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json=payload,
-                )
+                resp = await client.post(f"{OPENROUTER_BASE_URL}/chat/completions", headers=self._headers(), json=payload)
                 resp.raise_for_status()
                 return resp.json()
 
@@ -193,3 +202,84 @@ class OpenRouterEngine(AIEngine):
             raise AIEngineError(f"OpenRouter chat request failed: {_describe_error(exc)}") from exc
         except (KeyError, IndexError, ValueError) as exc:
             raise AIEngineError(f"OpenRouter chat response malformed: {exc}") from exc
+
+    async def generate_stream(
+        self,
+        system_prompt: str,
+        context: str,
+        user_query: str,
+        temperature: float | None = None,
+        history: list[tuple[str, str]] | None = None,
+    ) -> AsyncIterator[str]:
+        if not self.api_key:
+            raise AIEngineError("OpenRouter API key is not configured.")
+
+        payload = self._chat_payload(system_prompt, context, user_query, temperature, history)
+        payload["stream"] = True
+        # Puts token counts and cost in the final chunk, so streamed calls are
+        # logged to ai_usage_logs the same as non-streamed ones.
+        payload["usage"] = {"include": True}
+
+        usage: dict | None = None
+        provider: str | None = None
+        finish_reason: str | None = None
+        yielded = False
+        started_at = time.perf_counter()
+        try:
+            for attempt in range(RETRY_ATTEMPTS):
+                try:
+                    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+                        async with client.stream(
+                            "POST", f"{OPENROUTER_BASE_URL}/chat/completions", headers=self._headers(), json=payload
+                        ) as resp:
+                            resp.raise_for_status()
+                            async for line in resp.aiter_lines():
+                                chunk = parse_stream_line(line)
+                                if chunk is None:
+                                    continue
+                                if chunk is STREAM_DONE:
+                                    break
+                                if chunk.get("error"):
+                                    raise AIEngineError(f"OpenRouter stream error: {chunk['error']}")
+                                provider = chunk.get("provider") or provider
+                                usage = chunk.get("usage") or usage
+                                for choice in chunk.get("choices") or []:
+                                    finish_reason = choice.get("finish_reason") or finish_reason
+                                    text = (choice.get("delta") or {}).get("content")
+                                    if text:
+                                        yielded = True
+                                        yield text
+                    break
+                except TRANSIENT_ERRORS:
+                    # Text already shown can't be taken back by a silent retry
+                    # that might phrase things differently, so only a failure
+                    # before the first piece is retried.
+                    if yielded or attempt == RETRY_ATTEMPTS - 1:
+                        raise
+                    await asyncio.sleep(RETRY_DELAY_SECONDS)
+        except httpx.HTTPError as exc:
+            raise AIEngineError(f"OpenRouter chat request failed: {_describe_error(exc)}") from exc
+        except ValueError as exc:
+            raise AIEngineError(f"OpenRouter chat stream malformed: {exc}") from exc
+
+        latency_ms = round((time.perf_counter() - started_at) * 1000)
+        asyncio.create_task(
+            record_usage(
+                self.model, "chat", usage, self.db, provider=provider, finish_reason=finish_reason, latency_ms=latency_ms
+            )
+        )
+
+
+STREAM_DONE = object()
+
+
+def parse_stream_line(line: str):
+    """One line of OpenRouter's server-sent-event stream: the decoded chunk
+    dict, STREAM_DONE for the closing `data: [DONE]`, or None for anything
+    to skip (blank separators and `: OPENROUTER PROCESSING` keep-alives)."""
+    if not line.startswith("data:"):
+        return None
+    data = line[len("data:"):].strip()
+    if data == "[DONE]":
+        return STREAM_DONE
+    return json.loads(data)

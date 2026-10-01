@@ -284,9 +284,9 @@ export default function ConsumptionModal({
                       onChange={(e) => setModelFilter(e.target.value)}
                       className="rounded border border-slate-300 px-2 py-1 text-xs dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
                     >
-                      <option value="all">All models</option>
+                      <option value="all" className="dark:bg-night-surface dark:text-slate-100">All models</option>
                       {byModel.map((m) => (
-                        <option key={m.model} value={m.model}>
+                        <option key={m.model} value={m.model} className="dark:bg-night-surface dark:text-slate-100">
                           {shortModel(m.model)}
                         </option>
                       ))}

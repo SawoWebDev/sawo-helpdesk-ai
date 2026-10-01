@@ -21,13 +21,22 @@ export default function MessageList({
   onReport?: (chatLogId: number, reason: string | undefined, comment: string | undefined) => Promise<boolean>;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const streaming = messages[messages.length - 1]?.streaming === true;
 
   useEffect(() => {
+    const el = scrollRef.current;
+    if (streaming && el) {
+      // Follow the answer as it grows, unless the reader has scrolled up to
+      // look at something else; a smooth scroll per piece would lag behind.
+      if (el.scrollHeight - el.scrollTop - el.clientHeight < 120) el.scrollTop = el.scrollHeight;
+      return;
+    }
     endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+  }, [messages, loading, streaming]);
 
   return (
-    <div className="relative z-10 flex flex-1 flex-col overflow-y-auto bg-sawo-border dark:bg-transparent">
+    <div ref={scrollRef} className="relative z-10 flex flex-1 flex-col overflow-y-auto bg-sawo-border dark:bg-transparent">
       <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-3 px-4 py-6">
         {messages.length === 0 && (
           <div className="m-auto">
@@ -39,7 +48,7 @@ export default function MessageList({
           <MessageBubble key={idx} message={message} onCopy={onCopyMessage} onFeedback={onFeedback} onReport={onReport} />
         ))}
 
-        {loading && (
+        {loading && !streaming && (
           <div className="flex items-start gap-2">
             <BotAvatar />
             <div

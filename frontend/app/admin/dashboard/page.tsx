@@ -179,7 +179,7 @@ export default function DashboardPage() {
           value={overview ? formatCost(overview.ai_cost_7d_usd) : "..."}
           subtitle={overview ? formatDelta(overview.ai_cost_7d_delta_pct) : undefined}
         />
-        <MetricCard
+        <MetricCard 
           label="Cost / Answer"
           hint="The average price of one answer over the last 7 days. Use it to sanity-check value: a few cents per answer is normal, and a cheaper model or better knowledge base brings it down."
           value={overview && overview.cost_per_answer_7d_usd !== null ? formatCost(overview.cost_per_answer_7d_usd) : overview ? "N/A" : "..."}

@@ -21,6 +21,8 @@ export interface ChatMessage {
   rating?: "up" | "down";
   feedbackReason?: string;
   lowConfidence?: boolean;
+  /** Text is still arriving; replaced by the final answer when it ends. */
+  streaming?: boolean;
 }
 
 export const FEEDBACK_REASONS: { value: string; label: string }[] = [
@@ -239,7 +241,7 @@ export default function MessageBubble({
             </div>
           );
         })()}
-        {(message.time || !isUser) && (
+        {!message.streaming && (message.time || !isUser) && (
           <span className="mt-1 flex items-center gap-1.5 px-1">
             {message.time && <span className="text-[10px] text-slate-400 dark:text-slate-500">{message.time}</span>}
             {!isUser && (
@@ -343,11 +345,17 @@ export default function MessageBubble({
                   value={reportReason ?? ""}
                   onChange={(e) => setReportReason(e.target.value || undefined)}
                   aria-label="Reason"
-                  className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 dark:border-white/15 dark:bg-transparent dark:text-slate-300"
+                  className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 dark:border-white/15 dark:bg-slate-800 dark:text-slate-200"
                 >
-                  <option value="">Select a reason (optional)</option>
+                  <option value="" className="bg-white text-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                    Select a reason (optional)
+                  </option>
                   {FEEDBACK_REASONS.map((r) => (
-                    <option key={r.value} value={r.value}>
+                    <option
+                      key={r.value}
+                      value={r.value}
+                      className="bg-white text-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                    >
                       {r.label}
                     </option>
                   ))}

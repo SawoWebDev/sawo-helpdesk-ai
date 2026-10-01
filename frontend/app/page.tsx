@@ -9,6 +9,7 @@ import DarkBackdrop from "@/components/chat/DarkBackdrop";
 import Toast from "@/components/chat/Toast";
 import { ChatMessage } from "@/components/chat/MessageBubble";
 import { ApiError, apiPost } from "@/lib/api";
+import { streamChat } from "@/lib/chatStream";
 import {
   ACTIVE_CONVERSATION_KEY,
   ConversationDetail,
@@ -67,6 +68,7 @@ export default function ChatPage() {
   // Guards against a message being sent into a conversation that hasn't
   // finished restoring yet (mount-time list fetch + active-conversation load).
   const [isInitializing, setIsInitializing] = useState(true);
+  const requestSeq = useRef(0);
 
   function refreshConversations() {
     listConversations()
@@ -101,7 +103,15 @@ export default function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Detaches any in-flight answer from the screen when staff switch
+  // conversations, so it can't stream into the one they switched to.
+  function abandonInFlightAnswer() {
+    requestSeq.current += 1;
+    setLoading(false);
+  }
+
   function handleNewChat() {
+    abandonInFlightAnswer();
     setMessages([]);
     setActiveConversationId(null);
     localStorage.removeItem(ACTIVE_CONVERSATION_KEY);
@@ -109,6 +119,7 @@ export default function ChatPage() {
 
   async function handleSelectConversation(id: number) {
     if (id === activeConversationId) return;
+    abandonInFlightAnswer();
     try {
       const detail = await getConversation(id);
       setActiveConversationId(detail.id);
@@ -197,45 +208,63 @@ export default function ChatPage() {
     }
   }
 
+  // Puts the final assistant message in place of the streaming preview, or
+  // appends it when nothing was previewed.
+  function settleAnswer(message: ChatMessage) {
+    setMessages((prev) => {
+      const last = prev[prev.length - 1];
+      return last?.streaming ? [...prev.slice(0, -1), message] : [...prev, message];
+    });
+  }
+
   async function handleSend(text: string) {
+    const requestId = ++requestSeq.current;
+    const isCurrent = () => requestSeq.current === requestId;
     setMessages((prev) => [...prev, { role: "user", text, time: getTime() }]);
     setLoading(true);
     try {
-      const res = await apiPost<ChatResponse>("/api/chat", {
-        question: text,
-        session_id: getOrCreateSessionId(),
-        conversation_id: activeConversationId,
+      const res = await streamChat<ChatResponse>(
+        { question: text, session_id: getOrCreateSessionId(), conversation_id: activeConversationId },
+        (delta) => {
+          if (!isCurrent()) return;
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.streaming) return [...prev.slice(0, -1), { ...last, text: last.text + delta }];
+            return [...prev, { role: "assistant", text: delta, streaming: true, time: getTime() }];
+          });
+        }
+      );
+      if (!isCurrent()) {
+        // Staff moved to another conversation mid-answer; the turn is still
+        // saved under its own conversation, so just surface it in the list.
+        if (res.conversation_id !== null) refreshConversations();
+        return;
+      }
+      settleAnswer({
+        role: "assistant",
+        text: res.answer,
+        isFallback: res.is_fallback,
+        imageUrls: res.image_urls,
+        referenceUrls: res.reference_urls,
+        time: getTime(),
+        chatLogId: res.chat_log_id ?? undefined,
+        lowConfidence: res.low_confidence,
       });
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          text: res.answer,
-          isFallback: res.is_fallback,
-          imageUrls: res.image_urls,
-          referenceUrls: res.reference_urls,
-          time: getTime(),
-          chatLogId: res.chat_log_id ?? undefined,
-          lowConfidence: res.low_confidence,
-        },
-      ]);
       if (res.conversation_id !== null && res.conversation_id !== activeConversationId) {
         setActiveConversationId(res.conversation_id);
         localStorage.setItem(ACTIVE_CONVERSATION_KEY, String(res.conversation_id));
       }
       if (res.conversation_id !== null) refreshConversations();
     } catch {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          text: "Something went wrong reaching the helpdesk. Please try again shortly.",
-          isFallback: true,
-          time: getTime(),
-        },
-      ]);
+      if (!isCurrent()) return;
+      settleAnswer({
+        role: "assistant",
+        text: "Something went wrong reaching the helpdesk. Please try again shortly.",
+        isFallback: true,
+        time: getTime(),
+      });
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }
 
