@@ -1,13 +1,15 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
-from sqlalchemy import select
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response, status
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.deps import get_owner_hash
 from app.crud.analytics import get_popular_questions
 from app.db.session import get_db
 from app.models.chat_log import ChatLog
 from app.models.chat_report import ChatReport
+from app.models.conversation import Conversation
 from app.rag.pipeline import answer_question
 from app.schemas.chat_log import (
     ChatFeedbackRequest,
@@ -17,6 +19,7 @@ from app.schemas.chat_log import (
     PopularQuestion,
     PopularQuestionsOut,
 )
+from app.services.conversation_title import make_conversation_title
 from app.services.faq_promotion import promote_answer_to_draft
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -41,10 +44,20 @@ async def chat(
     request: Request,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    owner_hash: str = Depends(get_owner_hash),
 ):
     question = payload.question.strip()
     if not question:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Question cannot be empty")
+
+    conversation: Conversation | None = None
+    if payload.conversation_id is not None:
+        conv_result = await db.execute(select(Conversation).where(Conversation.id == payload.conversation_id))
+        conversation = conv_result.scalar_one_or_none()
+        # Same 404 whether the conversation doesn't exist or belongs to
+        # someone else, so a conversation_id can't be probed to learn which.
+        if conversation is None or conversation.owner_hash != owner_hash:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
 
     result = await answer_question(
         db, question, session_id=payload.session_id, ip_address=_get_client_ip(request)
@@ -61,6 +74,20 @@ async def chat(
             query_vector=result.promotion.query_vector,
         )
 
+    # Only attach/create a conversation once this turn is actually logged
+    # (off-topic chatter isn't) — otherwise a brand-new, never-answered
+    # conversation would show up as an empty entry in the sidebar.
+    if result.chat_log_id is not None:
+        if conversation is None:
+            conversation = Conversation(owner_hash=owner_hash, title=make_conversation_title(question))
+            db.add(conversation)
+            await db.flush()
+        conversation.updated_at = datetime.now(timezone.utc)
+        await db.execute(
+            update(ChatLog).where(ChatLog.id == result.chat_log_id).values(conversation_id=conversation.id)
+        )
+        await db.commit()
+
     return ChatResponse(
         answer=result.answer,
         is_fallback=result.is_fallback,
@@ -71,6 +98,8 @@ async def chat(
         reference_urls=result.reference_urls,
         chat_log_id=result.chat_log_id,
         low_confidence=result.low_confidence,
+        conversation_id=conversation.id if conversation is not None else None,
+        conversation_title=conversation.title if conversation is not None else None,
     )
 
 

@@ -11,6 +11,7 @@ from app.routers import (
     auth,
     categories,
     chat,
+    conversations,
     faqs,
     imports,
     knowledge_base,
@@ -40,6 +41,7 @@ app.mount("/uploads", StaticFiles(directory=settings.upload_dir), name="uploads"
 
 app.include_router(auth.router)
 app.include_router(chat.router)
+app.include_router(conversations.router)
 app.include_router(categories.router)
 # imports.router defines static paths (/api/faqs/template, /api/faqs/import) that
 # must be registered before faqs.router's /api/faqs/{faq_id} or the dynamic route

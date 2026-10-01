@@ -86,6 +86,13 @@ body {
   pointer-events: none;
 }
 
+/* .dark .glass sets its own border-color (see above), which otherwise beats
+   the `border-transparent` utility WelcomeCards applies at rest — this wins
+   on specificity so the resting card border actually disappears in dark mode. */
+.dark .glass.border-transparent {
+  border-color: transparent;
+}
+
 /* Also driven by a parent .group, so a lifting inner surface keeps its hover
    look while the stable outer button holds the pointer (see WelcomeCards). */
 .dark .glass-hover:hover,
@@ -101,6 +108,25 @@ body {
     inset 0 1px 0 rgba(255, 255, 255, 0.4),
     0 0 30px -8px rgba(193, 154, 118, 0.5),
     0 10px 30px -12px rgba(0, 0, 0, 0.8);
+}
+
+/* Topic cards (WelcomeCards) carry the moving glare overlay now, so the warm
+   ambient glow, the inset highlight, and the brightened interior wash from the
+   rule above are all redundant on hover — drop them, keep just the lift shadow
+   and the resting background (i.e. the interior doesn't "glow" on hover). */
+.dark .glass-hover.glass-hover-no-glow:hover,
+.dark .group:enabled:hover > .glass-hover.glass-hover-no-glow {
+  background-image: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.16) 0%,
+    rgba(255, 255, 255, 0.07) 38%,
+    rgba(255, 255, 255, 0.035) 100%
+  );
+  box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.8);
+}
+/* Same inset highlight exists at rest too (see .dark .glass above) — drop it there too. */
+.dark .glass.glass-hover-no-glow {
+  box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.8);
 }
 
 /* Quieter glass for chat bubbles: there are many of them stacked, so the full
@@ -222,6 +248,20 @@ body {
 }
 /* The overlay is the input's next sibling, so focus drives the sweep */
 .dark .glass-input:focus + .glass-edge-wide {
+  --glare-t: 1;
+}
+/* Topic cards (WelcomeCards): the overlay lives inside the lifting glass face
+   (so it rides along with the lift instead of staying behind), itself inside
+   the hoverable .group button — hence the descendant selector. Hover is a
+   quicker, more transient gesture than a focused input, so the sweep is faster,
+   and eases out (fast to slow) both in and out — a gentler curve than
+   cubic-bezier(0.16, 1, 0.3, 1), which snapped almost all its motion into the
+   first third and read as stiff. */
+.dark .group:enabled .glass-edge-wide {
+  transition-duration: 600ms;
+  transition-timing-function: cubic-bezier(0.33, 1, 0.68, 1);
+}
+.dark .group:enabled:hover .glass-edge-wide {
   --glare-t: 1;
 }
 

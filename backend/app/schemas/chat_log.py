@@ -37,6 +37,10 @@ class ChatLogOut(BaseModel):
 class ChatRequest(BaseModel):
     question: str
     session_id: str
+    # Private conversation this message belongs to; omitted/None for the
+    # first message of a new conversation (the server creates one and
+    # reports its id back once the turn is actually logged).
+    conversation_id: int | None = None
 
 
 class ChatResponse(BaseModel):
@@ -49,6 +53,10 @@ class ChatResponse(BaseModel):
     reference_urls: list[str]
     chat_log_id: int | None = None
     low_confidence: bool = False
+    # None when this turn wasn't logged (e.g. off-topic chatter) and no
+    # conversation exists yet to attach it to.
+    conversation_id: int | None = None
+    conversation_title: str | None = None
 
 
 class ChatFeedbackRequest(BaseModel):

@@ -27,7 +27,7 @@ export default function MessageList({
   }, [messages, loading]);
 
   return (
-    <div className="relative z-10 flex flex-1 flex-col overflow-y-auto bg-sawo-bg dark:bg-transparent">
+    <div className="relative z-10 flex flex-1 flex-col overflow-y-auto bg-sawo-border dark:bg-transparent">
       <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-3 px-4 py-6">
         {messages.length === 0 && (
           <div className="m-auto">
