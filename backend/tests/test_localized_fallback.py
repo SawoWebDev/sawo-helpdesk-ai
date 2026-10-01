@@ -121,7 +121,7 @@ def test_explicit_language_request_selects_the_requested_translation():
     language = detect("Please answer in Finnish.")
     assert language.name == "Finnish" and language.explicit
     localized = localize_fallback_message(
-        "Thanks for your question, we've taken note of it and will follow up once we have an answer.", language
+        "Thanks for your question — we've taken note of it and will follow up once we have an answer.", language
     )
     assert localized.startswith("Kiitos kysymyksestäsi")
 
