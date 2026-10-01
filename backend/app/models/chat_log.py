@@ -20,4 +20,7 @@ class ChatLog(Base):
     ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
     rating: Mapped[str | None] = mapped_column(String(10), nullable=True)
     rated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Only meaningful (and only set by the client) when rating == "down";
+    # cleared whenever the rating changes away from "down".
+    feedback_reason: Mapped[str | None] = mapped_column(String(40), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

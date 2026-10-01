@@ -1,13 +1,22 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.crud.analytics import get_popular_questions
 from app.db.session import get_db
 from app.models.chat_log import ChatLog
+from app.models.chat_report import ChatReport
 from app.rag.pipeline import answer_question
-from app.schemas.chat_log import ChatFeedbackRequest, ChatRequest, ChatResponse
+from app.schemas.chat_log import (
+    ChatFeedbackRequest,
+    ChatReportRequest,
+    ChatRequest,
+    ChatResponse,
+    PopularQuestion,
+    PopularQuestionsOut,
+)
 from app.services.faq_promotion import promote_answer_to_draft
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -78,4 +87,37 @@ async def feedback(payload: ChatFeedbackRequest, db: AsyncSession = Depends(get_
 
     chat_log.rating = payload.rating
     chat_log.rated_at = datetime.now(timezone.utc)
+    chat_log.feedback_reason = payload.reason if payload.rating == "down" else None
     await db.commit()
+
+
+@router.post("/report", status_code=status.HTTP_204_NO_CONTENT)
+async def report_answer(payload: ChatReportRequest, db: AsyncSession = Depends(get_db)):
+    """Staff-submitted "report a problem" for one reply. Same no-probing
+    rationale as /feedback: a chat_log_id must be paired with the session_id
+    that produced it, since this endpoint has no auth of its own."""
+    result = await db.execute(select(ChatLog).where(ChatLog.id == payload.chat_log_id))
+    chat_log = result.scalar_one_or_none()
+    if chat_log is None or chat_log.session_id != payload.session_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat log not found")
+
+    db.add(
+        ChatReport(
+            chat_log_id=payload.chat_log_id,
+            session_id=payload.session_id,
+            question_text=payload.question_text,
+            answer_text=payload.answer_text,
+            reference_urls=payload.reference_urls,
+            reason=payload.reason,
+            comment=payload.comment,
+        )
+    )
+    await db.commit()
+
+
+@router.get("/popular-questions", response_model=PopularQuestionsOut)
+async def popular_questions(limit: int = Query(4, ge=1, le=10), db: AsyncSession = Depends(get_db)):
+    items, based_on_usage = await get_popular_questions(db, limit)
+    return PopularQuestionsOut(
+        items=[PopularQuestion(**item) for item in items], based_on_usage=based_on_usage
+    )

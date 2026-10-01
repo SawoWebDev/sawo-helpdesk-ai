@@ -1,7 +1,19 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+# Reasons offered when a staff member marks a reply "not helpful" or files a
+# report. Kept as a plain str field (not a strict Literal) on the wire so an
+# older/newer client sending an unrecognized value never 422s the request —
+# reason is supplementary context, not something worth failing feedback over.
+FEEDBACK_REASONS = (
+    "incorrect_information",
+    "outdated_information",
+    "did_not_answer",
+    "wrong_product_or_model",
+    "other",
+)
 
 
 class ChatLogOut(BaseModel):
@@ -18,6 +30,7 @@ class ChatLogOut(BaseModel):
     ip_address: str | None
     rating: str | None
     rated_at: datetime | None
+    feedback_reason: str | None = None
     created_at: datetime
 
 
@@ -42,6 +55,46 @@ class ChatFeedbackRequest(BaseModel):
     chat_log_id: int
     session_id: str
     rating: Literal["up", "down"]
+    # Only meaningful for rating == "down"; ignored (stored as None) otherwise.
+    reason: str | None = Field(default=None, max_length=40)
+
+
+class ChatReportRequest(BaseModel):
+    chat_log_id: int
+    session_id: str
+    # Snapshotted from what the client actually rendered for this reply,
+    # rather than re-derived server-side, so a report always reflects exactly
+    # what the staff member saw.
+    question_text: str
+    answer_text: str
+    reference_urls: list[str] = []
+    reason: str | None = Field(default=None, max_length=40)
+    comment: str | None = Field(default=None, max_length=2000)
+
+
+class ChatReportOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    chat_log_id: int
+    session_id: str
+    question_text: str
+    answer_text: str
+    reference_urls: list[str]
+    reason: str | None
+    comment: str | None
+    status: str
+    created_at: datetime
+
+
+class PopularQuestion(BaseModel):
+    question: str
+    source: Literal["usage", "faq"]
+
+
+class PopularQuestionsOut(BaseModel):
+    items: list[PopularQuestion]
+    based_on_usage: bool
 
 
 class SessionSummary(BaseModel):

@@ -1,6 +1,7 @@
 from app.models.ai_usage_log import AIUsageLog
 from app.models.category import Category
 from app.models.chat_log import ChatLog
+from app.models.chat_report import ChatReport
 from app.models.faq import FAQEntry
 from app.models.faq_phrasing import FAQPhrasing
 from app.models.harvest_job import HarvestJob
@@ -14,6 +15,7 @@ __all__ = [
     "AIUsageLog",
     "Category",
     "ChatLog",
+    "ChatReport",
     "FAQEntry",
     "FAQPhrasing",
     "HarvestJob",

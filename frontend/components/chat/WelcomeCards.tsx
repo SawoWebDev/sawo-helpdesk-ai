@@ -1,73 +1,101 @@
 "use client";
 
+import { useEffect, useId, useState } from "react";
+import { apiGet } from "@/lib/api";
 import BotAvatar from "./BotAvatar";
-import { HrIcon, ItIcon, MarketingIcon, ProcessesIcon, ProductIcon, SalesIcon } from "./TopicIcons";
+import { DocumentIcon, HrIcon, ItIcon, ProcessesIcon, ProductIcon, SalesIcon } from "./TopicIcons";
 
-interface Suggestion {
+interface PopularQuestionsResponse {
+  items: { question: string; source: "usage" | "faq" }[];
+  based_on_usage: boolean;
+}
+
+interface TopicCard {
   icon: React.ReactNode;
   iconBg: string;
   iconColor: string;
   title: string;
   description: string;
-  prompt: string;
+  /**
+   * Concrete, staff-phrased questions grounded in what the knowledge base
+   * actually contains for this topic (see WelcomeCards test/report for the
+   * evidence behind each one). Kept to ~3 so the panel stays scannable.
+   */
+  suggestions: string[];
 }
 
-const SUGGESTIONS: Suggestion[] = [
+const CARDS: TopicCard[] = [
   {
-    icon: <SalesIcon />,
-    iconBg: "bg-gradient-to-br from-blue-100 to-blue-300",
-    iconColor: "text-blue-700",
-    title: "Sales",
-    description: "Pricing, quotes, and deal support.",
-    prompt: "What's our current pricing and quoting process for a new deal?",
-  },
-  {
-    icon: <MarketingIcon />,
-    iconBg: "bg-gradient-to-br from-orange-100 to-orange-300",
-    iconColor: "text-orange-700",
-    title: "Marketing",
-    description: "Brand assets, campaigns, and messaging.",
-    prompt: "Where can I find our latest brand assets and marketing guidelines?",
-  },
-  {
-    icon: <HrIcon />,
-    iconBg: "bg-gradient-to-br from-purple-100 to-purple-300",
-    iconColor: "text-purple-700",
-    title: "HR & Policies",
-    description: "Leave, benefits, and company policies.",
-    prompt: "What's our company policy on requesting leave?",
-  },
-  {
-    icon: <ItIcon />,
-    iconBg: "bg-gradient-to-br from-emerald-100 to-emerald-300",
-    iconColor: "text-emerald-700",
-    title: "IT Support",
-    description: "Access, tools, and internal systems.",
-    prompt: "Who do I contact for IT access or system issues?",
+    icon: <ProcessesIcon />,
+    iconBg: "bg-gradient-to-br from-amber-100 to-amber-300",
+    iconColor: "text-amber-700",
+    title: "Troubleshooting & Error Codes",
+    description: "Error codes, heater faults, and controller issues.",
+    suggestions: [
+      "My heater controller shows error E1 — what causes it and how do I fix it?",
+      "The display shows \"oPEn\" and the heater won't start — what's wrong?",
+      "My heater is making a loud humming noise — what's causing it?",
+    ],
   },
   {
     icon: <ProductIcon />,
     iconBg: "bg-gradient-to-br from-rose-100 to-rose-300",
     iconColor: "text-rose-700",
-    title: "Product Knowledge",
-    description: "Specs and details to answer client questions.",
-    // Was "Where can I find detailed specs on our products?" — that text was
-    // also, word for word, an FAQ entry's question. An exact text match
-    // there scores a near-1.0 similarity, which always wins as "the" answer
-    // regardless of retrieval quality — so every click landed on one generic
-    // canned reply instead of ever searching the product content this card
-    // promises. Rephrased to ask something retrieval can actually answer
-    // well, so the first thing a new user tries demonstrates real product
-    // lookup rather than a dead end.
-    prompt: "What are all our sauna heater series and their specs?",
+    title: "Product Specs & Compatibility",
+    description: "Heater series, models, sizing, and specs.",
+    suggestions: [
+      "What are all our sauna heater series and their specs?",
+      "Can you list all our Aries Tower heater models?",
+      "What are the specs for the Scandifire Red NS heater?",
+    ],
   },
   {
-    icon: <ProcessesIcon />,
-    iconBg: "bg-gradient-to-br from-amber-100 to-amber-300",
-    iconColor: "text-amber-700",
-    title: "Internal Processes",
-    description: "SOPs, approvals, and who to ask.",
-    prompt: "What's the internal process and who should I contact for approvals?",
+    icon: <SalesIcon />,
+    iconBg: "bg-gradient-to-br from-blue-100 to-blue-300",
+    iconColor: "text-blue-700",
+    title: "Customer & Sales Questions",
+    description: "Company facts and product info for customer calls.",
+    suggestions: [
+      "What is SAWO and what products do we offer?",
+      "Does SAWO have a sustainability commitment I can share with a customer?",
+      "What series does our sauna heater lineup include that I can explain to a customer?",
+    ],
+  },
+  {
+    icon: <DocumentIcon />,
+    iconBg: "bg-gradient-to-br from-teal-100 to-teal-300",
+    iconColor: "text-teal-700",
+    title: "Manuals & Technical Documents",
+    description: "Installation, wiring, and controller compatibility.",
+    suggestions: [
+      "What are the installation and wiring requirements for the Innova 2.0 Power Controller?",
+      "Is the Innova Classic Built-In compatible with heaters over 15kW?",
+      "What's involved in installing the Saunova 2.0 Built-In controller?",
+    ],
+  },
+  {
+    icon: <ItIcon />,
+    iconBg: "bg-gradient-to-br from-emerald-100 to-emerald-300",
+    iconColor: "text-emerald-700",
+    title: "IT & Access Issues",
+    description: "Login, account access, and internal systems.",
+    suggestions: [
+      "Who do I contact for IT access or system issues?",
+      "Who do I contact if I can't log into an internal system?",
+      "Which team handles requests for new software or tools?",
+    ],
+  },
+  {
+    icon: <HrIcon />,
+    iconBg: "bg-gradient-to-br from-purple-100 to-purple-300",
+    iconColor: "text-purple-700",
+    title: "Company Policies & Procedures",
+    description: "Leave, benefits, approvals, and who to ask.",
+    suggestions: [
+      "What's our company policy on requesting leave?",
+      "What's the process for getting an expense approved?",
+      "Who should I contact about benefits questions?",
+    ],
   },
 ];
 
@@ -78,6 +106,27 @@ export default function WelcomeCards({
   onSelect: (text: string) => void;
   disabled: boolean;
 }) {
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const panelId = useId();
+  const active = activeIndex !== null ? CARDS[activeIndex] : null;
+
+  const [popular, setPopular] = useState<PopularQuestionsResponse | null>(null);
+
+  useEffect(() => {
+    apiGet<PopularQuestionsResponse>("/api/chat/popular-questions?limit=4")
+      .then(setPopular)
+      .catch(() => setPopular(null));
+  }, []);
+
+  function toggleCard(index: number) {
+    setActiveIndex((prev) => (prev === index ? null : index));
+  }
+
+  function handleSuggestion(text: string) {
+    setActiveIndex(null);
+    onSelect(text);
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col items-center gap-6 px-4 py-8 text-center">
       <BotAvatar className="h-16 w-16 rounded-full shadow-sm" />
@@ -90,17 +139,26 @@ export default function WelcomeCards({
       </div>
 
       <div className="grid w-full grid-cols-2 gap-3 sm:grid-cols-3">
-        {SUGGESTIONS.map((item) => (
+        {CARDS.map((item, index) => (
           <button
             key={item.title}
             type="button"
             disabled={disabled}
-            onClick={() => onSelect(item.prompt)}
+            aria-expanded={activeIndex === index}
+            aria-controls={activeIndex === index ? panelId : undefined}
+            onClick={() => toggleCard(index)}
             className="group rounded-2xl text-left disabled:opacity-50"
           >
             {/* The button stays put and owns the hover; only this face lifts, so the
                 pointer never slips off the bottom edge mid-lift and makes it shake. */}
-            <span data-reveal-hit="lift" className="glass glass-edge glass-hover relative flex h-full w-full flex-col items-start gap-2 rounded-2xl border border-sawo/25 bg-white p-3 shadow-sm transition-[transform,box-shadow,border-color] duration-200 will-change-transform [backface-visibility:hidden] group-enabled:group-hover:border-sawo/50 group-enabled:group-hover:shadow-lg motion-safe:group-enabled:group-hover:-translate-y-1">
+            <span
+              data-reveal-hit="lift"
+              className={`glass glass-edge glass-hover relative flex h-full w-full flex-col items-start gap-2 rounded-2xl border bg-white p-3 shadow-sm transition-[transform,box-shadow,border-color] duration-200 will-change-transform [backface-visibility:hidden] group-enabled:group-hover:shadow-lg motion-safe:group-enabled:group-hover:-translate-y-1 ${
+                activeIndex === index
+                  ? "border-sawo/60 shadow-lg"
+                  : "border-sawo/25 group-enabled:group-hover:border-sawo/50"
+              }`}
+            >
               <span
                 className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl p-2.5 shadow-[inset_0_1px_1px_rgba(255,255,255,0.7),inset_0_-2px_3px_rgba(0,0,0,0.12),0_2px_4px_rgba(0,0,0,0.12)] dark:shadow-[inset_0_1px_1px_rgba(255,255,255,0.4),inset_0_-2px_3px_rgba(0,0,0,0.3),0_0_14px_-3px_rgba(0,0,0,0.5)] ${item.iconBg} ${item.iconColor}`}
               >
@@ -112,6 +170,61 @@ export default function WelcomeCards({
           </button>
         ))}
       </div>
+
+      {popular && popular.items.length > 0 && (
+        <div className="w-full text-left">
+          <p className="mb-1.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+            {popular.based_on_usage ? "Popular questions" : "Suggested questions"}
+          </p>
+          <div className="flex flex-col gap-1">
+            {popular.items.map((item) => (
+              <button
+                key={item.question}
+                type="button"
+                disabled={disabled}
+                onClick={() => handleSuggestion(item.question)}
+                className="glass-hover w-full truncate rounded-xl border border-transparent px-3 py-1.5 text-left text-[12px] leading-snug text-slate-600 transition-colors hover:border-sawo/25 hover:bg-sawo/10 disabled:opacity-50 dark:text-slate-300"
+              >
+                {item.question}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {active && (
+        <div
+          id={panelId}
+          role="group"
+          aria-label={`Suggested questions for ${active.title}`}
+          className="glass glass-edge w-full rounded-2xl border border-sawo/25 bg-white p-3 text-left shadow-sm"
+        >
+          <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+            {active.title}
+          </p>
+          <div className="flex flex-col gap-1.5">
+            {active.suggestions.map((text) => (
+              <button
+                key={text}
+                type="button"
+                disabled={disabled}
+                onClick={() => handleSuggestion(text)}
+                className="glass-hover w-full rounded-xl px-3 py-2 text-left text-[13px] leading-snug text-slate-700 transition-colors hover:bg-sawo/10 disabled:opacity-50 dark:text-slate-100"
+              >
+                {text}
+              </button>
+            ))}
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => setActiveIndex(null)}
+              className="w-full rounded-xl px-3 py-2 text-left text-[13px] font-medium text-sawo-dark underline-offset-2 hover:underline disabled:opacity-50 dark:text-sawo-light"
+            >
+              Ask something else
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -11,6 +11,7 @@ from app.crud.faq import create_faq, find_duplicate_faq
 from app.db.session import get_db
 from app.models.ai_usage_log import AIUsageLog
 from app.models.chat_log import ChatLog
+from app.models.chat_report import ChatReport
 from app.models.faq import FAQEntry
 from app.models.user import User
 from app.models.vault_entry import VaultEntry
@@ -19,6 +20,7 @@ from app.schemas.admin import DangerousActionConfirm
 from app.schemas.chat_log import (
     ChatLogOut,
     ChatLogWithUsageOut,
+    ChatReportOut,
     DeleteSessionsRequest,
     MessageUsage,
     SessionSummary,
@@ -60,6 +62,34 @@ async def list_all(
     items = list(result.scalars().all())
     return PaginatedResponse(
         items=[ChatLogOut.model_validate(item) for item in items],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/reports", response_model=PaginatedResponse)
+async def list_reports(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    status_filter: str | None = Query(None, alias="status", pattern="^(open|resolved)$"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Staff-submitted "report a problem" entries, newest first. Agent/admin
+    gated, same as the rest of this router — a report can contain a staff
+    member's free-text comment, so it gets the same access restriction as
+    everything else in Chat Logs."""
+    stmt = select(ChatReport)
+    count_stmt = select(func.count(ChatReport.id))
+    if status_filter:
+        stmt = stmt.where(ChatReport.status == status_filter)
+        count_stmt = count_stmt.where(ChatReport.status == status_filter)
+
+    total = (await db.execute(count_stmt)).scalar_one()
+    stmt = stmt.order_by(ChatReport.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    items = list((await db.execute(stmt)).scalars().all())
+    return PaginatedResponse(
+        items=[ChatReportOut.model_validate(item) for item in items],
         total=total,
         page=page,
         page_size=page_size,

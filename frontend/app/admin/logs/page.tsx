@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown, { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { apiFetch, apiGet, apiPost, ApiError } from "@/lib/api";
+import { FEEDBACK_REASONS } from "@/components/chat/MessageBubble";
 import { useUnreadSessions } from "@/lib/useUnreadSessions";
 import Pagination from "@/components/admin/Pagination";
 import DateRangePopover from "@/components/admin/logs/DateRangePopover";
@@ -35,6 +36,7 @@ interface ChatLogRow {
   session_id: string | null;
   ip_address: string | null;
   rating: "up" | "down" | null;
+  feedback_reason: string | null;
   created_at: string;
   question_usage?: MessageUsage;
   answer_usage?: MessageUsage;
@@ -54,6 +56,10 @@ interface MessageUsage {
   total_cost_usd: number;
   models: string[];
 }
+
+const FEEDBACK_REASON_LABELS: Record<string, string> = Object.fromEntries(
+  FEEDBACK_REASONS.map((r) => [r.value, r.label])
+);
 
 function formatTokens(n: number): string {
   return n.toLocaleString();
@@ -732,7 +738,15 @@ export default function LogsPage() {
                           >
                             {!isUser && log.rating && (
                               <span
-                                title={log.rating === "up" ? "Rated helpful" : "Rated not helpful"}
+                                title={
+                                  log.rating === "up"
+                                    ? "Rated helpful"
+                                    : `Rated not helpful${
+                                        log.feedback_reason
+                                          ? ` — ${FEEDBACK_REASON_LABELS[log.feedback_reason] ?? log.feedback_reason}`
+                                          : ""
+                                      }`
+                                }
                                 className={`inline-flex items-center ${
                                   log.rating === "up"
                                     ? "text-sawo dark:text-sawo-light"

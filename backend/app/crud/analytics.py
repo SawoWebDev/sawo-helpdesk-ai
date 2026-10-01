@@ -9,6 +9,19 @@ from app.models.category import Category
 from app.models.chat_log import ChatLog
 from app.models.faq import FAQEntry
 from app.models.unanswered import UnansweredQuestion
+from app.rag.question_normalize import normalize_question
+
+# A question only counts as "popular" once it's been asked this many times...
+POPULAR_MIN_OCCURRENCES = 3
+# ...by at least this many different staff members — otherwise one person
+# re-asking the same thing in a session would look identical to real demand.
+POPULAR_MIN_SESSIONS = 2
+POPULAR_LOOKBACK_DAYS = 30
+# How many recent answered messages to scan when grouping by normalized text.
+# Bounded rather than unbounded, matching get_chat_trend's "computed in Python
+# from one fetch" approach — this app's chat volume doesn't need SQL-side
+# grouping, and normalization can only be done in Python anyway.
+POPULAR_SCAN_LIMIT = 1000
 
 
 def _now_naive_utc() -> datetime:
@@ -391,3 +404,70 @@ async def get_content_growth(db: AsyncSession, days: int) -> list[dict]:
         {"day": day, "by_source": sources, "total": sum(sources.values())}
         for day, sources in sorted(by_day.items())
     ]
+
+
+async def get_popular_questions(db: AsyncSession, limit: int) -> tuple[list[dict], bool]:
+    """Compact "Popular Questions" list for the chat welcome screen.
+
+    Prefers real usage: groups recently-asked, actually-answered questions by
+    normalized text, and only surfaces a group once it has been asked by
+    enough distinct sessions to call it genuine repeat demand (not one person
+    re-asking, and not a single lucky retrieval match). Falls back to a plain
+    list of published FAQ questions, clearly NOT labeled as usage-derived,
+    when there isn't enough usage data yet. Returns (items, based_on_usage) —
+    based_on_usage is all-or-nothing so the caller never has to mix a
+    "Popular" heading with unverified suggestions in the same list."""
+    since = _days_ago_naive_utc(POPULAR_LOOKBACK_DAYS)
+    rows = (
+        await db.execute(
+            select(
+                ChatLog.question_text,
+                ChatLog.session_id,
+                ChatLog.created_at,
+                ChatLog.matched_faq_ids,
+                ChatLog.matched_vault_ids,
+            )
+            .where(ChatLog.created_at >= since, ChatLog.session_id.is_not(None))
+            .order_by(ChatLog.created_at.desc())
+            .limit(POPULAR_SCAN_LIMIT)
+        )
+    ).all()
+
+    groups: dict[str, dict] = {}
+    for question_text, session_id, created_at, matched_faq_ids, matched_vault_ids in rows:
+        # Only count messages that were actually answered from real content —
+        # a fallback/off-topic reply logs empty match lists (same signal
+        # get_overview uses), and an unanswered question must never be
+        # presented as a verified, popular answer.
+        if not matched_faq_ids and not matched_vault_ids:
+            continue
+        key = normalize_question(question_text)
+        if not key:
+            continue
+        group = groups.setdefault(key, {"question": question_text, "sessions": set(), "count": 0, "latest": created_at})
+        group["count"] += 1
+        group["sessions"].add(session_id)
+        if created_at > group["latest"]:
+            group["latest"] = created_at
+            group["question"] = question_text  # most recent phrasing wins as the display text
+
+    qualifying = [
+        g for g in groups.values()
+        if g["count"] >= POPULAR_MIN_OCCURRENCES and len(g["sessions"]) >= POPULAR_MIN_SESSIONS
+    ]
+    qualifying.sort(key=lambda g: (g["count"], g["latest"]), reverse=True)
+
+    if len(qualifying) >= limit:
+        items = [{"question": g["question"], "source": "usage"} for g in qualifying[:limit]]
+        return items, True
+
+    faq_rows = (
+        await db.execute(
+            select(FAQEntry.question)
+            .where(FAQEntry.status == "published")
+            .order_by(FAQEntry.created_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    items = [{"question": q, "source": "faq"} for q in faq_rows]
+    return items, False

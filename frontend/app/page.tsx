@@ -57,25 +57,56 @@ export default function ChatPage() {
     return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
 
-  async function handleFeedback(chatLogId: number, rating: "up" | "down") {
+  async function handleFeedback(chatLogId: number, rating: "up" | "down", reason?: string) {
     // Optimistic: the vast majority of feedback submissions succeed, and
     // waiting on the round-trip before showing the selected state would make
     // the button feel unresponsive for no real benefit.
+    const previous = messages.find((m) => m.chatLogId === chatLogId);
     setMessages((prev) =>
-      prev.map((m) => (m.chatLogId === chatLogId ? { ...m, rating } : m))
+      prev.map((m) => (m.chatLogId === chatLogId ? { ...m, rating, feedbackReason: rating === "down" ? reason : undefined } : m))
     );
     try {
       await apiPost("/api/chat/feedback", {
         chat_log_id: chatLogId,
         session_id: getOrCreateSessionId(),
         rating,
+        reason,
       });
       showToast("Thanks for your feedback");
     } catch {
       setMessages((prev) =>
-        prev.map((m) => (m.chatLogId === chatLogId ? { ...m, rating: undefined } : m))
+        prev.map((m) =>
+          m.chatLogId === chatLogId
+            ? { ...m, rating: previous?.rating, feedbackReason: previous?.feedbackReason }
+            : m
+        )
       );
       showToast("Couldn't send feedback, please try again");
+    }
+  }
+
+  async function handleReport(
+    chatLogId: number,
+    reason: string | undefined,
+    comment: string | undefined
+  ): Promise<boolean> {
+    const index = messages.findIndex((m) => m.chatLogId === chatLogId);
+    if (index === -1) return false;
+    const message = messages[index];
+    const question = [...messages.slice(0, index)].reverse().find((m) => m.role === "user");
+    try {
+      await apiPost("/api/chat/report", {
+        chat_log_id: chatLogId,
+        session_id: getOrCreateSessionId(),
+        question_text: question?.text ?? "",
+        answer_text: message.text,
+        reference_urls: message.referenceUrls ?? [],
+        reason,
+        comment,
+      });
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -140,6 +171,7 @@ export default function ChatPage() {
         onSelectSuggestion={handleSend}
         onCopyMessage={() => showToast("Response copied")}
         onFeedback={handleFeedback}
+        onReport={handleReport}
       />
       <ChatInput onSend={handleSend} disabled={loading} />
       <Toast message={toast} />

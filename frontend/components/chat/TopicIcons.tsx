@@ -55,6 +55,18 @@ export function ProductIcon() {
   );
 }
 
+export function DocumentIcon() {
+  return base(
+    <>
+      <path d="M5.5 3.6h9.2L19 8v11.4a1 1 0 0 1-1 1H5.5a1 1 0 0 1-1-1V4.6a1 1 0 0 1 1-1Z" />
+      <path d="M14.7 3.6 19 8h-3.3a1 1 0 0 1-1-1V3.6Z" fillOpacity="0.55" />
+      <rect x="6.8" y="11.2" width="9.4" height="1.6" rx="0.8" fill="#fff" fillOpacity="0.85" />
+      <rect x="6.8" y="14.4" width="9.4" height="1.6" rx="0.8" fill="#fff" fillOpacity="0.85" />
+      <rect x="6.8" y="17.6" width="6" height="1.6" rx="0.8" fill="#fff" fillOpacity="0.85" />
+    </>
+  );
+}
+
 export function ProcessesIcon() {
   return base(
     <>

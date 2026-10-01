@@ -11,12 +11,14 @@ export default function MessageList({
   onSelectSuggestion,
   onCopyMessage,
   onFeedback,
+  onReport,
 }: {
   messages: ChatMessage[];
   loading: boolean;
   onSelectSuggestion: (text: string) => void;
   onCopyMessage?: (text: string) => void;
-  onFeedback?: (chatLogId: number, rating: "up" | "down") => void;
+  onFeedback?: (chatLogId: number, rating: "up" | "down", reason?: string) => void;
+  onReport?: (chatLogId: number, reason: string | undefined, comment: string | undefined) => Promise<boolean>;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -34,7 +36,7 @@ export default function MessageList({
         )}
 
         {messages.map((message, idx) => (
-          <MessageBubble key={idx} message={message} onCopy={onCopyMessage} onFeedback={onFeedback} />
+          <MessageBubble key={idx} message={message} onCopy={onCopyMessage} onFeedback={onFeedback} onReport={onReport} />
         ))}
 
         {loading && (
