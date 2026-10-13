@@ -164,7 +164,7 @@ podman-compose -f deploy/podman-compose.yml --env-file .env up -d
 podman-compose -f deploy/podman-compose.yml --env-file .env down
 
 # Tail backend logs
-podman logs -f deploy_backend_1
+podman logs -f sawo-helpdesk-backend
 ```
 
 ### Running backend/frontend directly (no containers, for quick debugging)
@@ -254,8 +254,8 @@ under Podman (FAQs, Library/Vault content, chat logs) and need to switch:
 
    ```sh
    docker compose -f deploy/podman-compose.yml stop
-   docker run --rm -v deploy_db_data:/data -v "<repo-path>/backup:/backup" alpine sh -c "rm -rf /data/* && tar xzf /backup/db_data.tar.gz -C /data"
-   docker run --rm -v deploy_uploads_data:/data -v "<repo-path>/backup:/backup" alpine sh -c "rm -rf /data/* && tar xzf /backup/uploads_data.tar.gz -C /data"
+   docker run --rm -v sawo-helpdesk_db_data:/data -v "<repo-path>/backup:/backup" alpine sh -c "rm -rf /data/* && tar xzf /backup/db_data.tar.gz -C /data"
+   docker run --rm -v sawo-helpdesk_uploads_data:/data -v "<repo-path>/backup:/backup" alpine sh -c "rm -rf /data/* && tar xzf /backup/uploads_data.tar.gz -C /data"
    docker compose -f deploy/podman-compose.yml --env-file .env up -d
    ```
 

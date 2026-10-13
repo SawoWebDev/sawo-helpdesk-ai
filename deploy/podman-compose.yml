@@ -1,7 +1,12 @@
 version: "3.9"
 
+# Fixed project name so containers/volumes are named after the app instead of
+# the folder this file lives in ("deploy").
+name: sawo-helpdesk
+
 services:
   backend:
+    container_name: sawo-helpdesk-backend
     build:
       context: ../backend
       dockerfile: Containerfile
@@ -25,6 +30,7 @@ services:
       - 1.1.1.1
 
   frontend:
+    container_name: sawo-helpdesk-frontend
     build:
       context: ../frontend
       dockerfile: Containerfile

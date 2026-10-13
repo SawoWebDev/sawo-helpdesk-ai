@@ -12,6 +12,13 @@ const HOP_BY_HOP_HEADERS = new Set([
   "content-encoding",
   "content-length",
   "host",
+  // Node's undici fetch throws UND_ERR_NOT_SUPPORTED on these instead of
+  // ignoring them, which would turn the whole request into a 500.
+  "expect",
+  "upgrade",
+  "te",
+  "trailer",
+  "proxy-connection",
 ]);
 
 async function proxy(req: NextRequest, params: { path: string[] }) {
@@ -31,14 +38,20 @@ async function proxy(req: NextRequest, params: { path: string[] }) {
 
   const hasBody = !["GET", "HEAD"].includes(req.method);
 
-  const res = await fetch(targetUrl, {
-    method: req.method,
-    headers,
-    body: hasBody ? await req.arrayBuffer() : undefined,
-    redirect: "manual",
-    // @ts-expect-error Node's undici fetch respects this to disable its own timeout
-    duplex: hasBody ? "half" : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(targetUrl, {
+      method: req.method,
+      headers,
+      body: hasBody ? await req.arrayBuffer() : undefined,
+      redirect: "manual",
+      // @ts-expect-error Node's undici fetch respects this to disable its own timeout
+      duplex: hasBody ? "half" : undefined,
+    });
+  } catch (err) {
+    console.error(`Proxy to ${targetUrl} failed:`, err);
+    return NextResponse.json({ detail: "Helpdesk backend is unreachable" }, { status: 502 });
+  }
 
   const responseHeaders = new Headers();
   res.headers.forEach((value, key) => {
