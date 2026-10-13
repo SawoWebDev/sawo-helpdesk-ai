@@ -26,3 +26,8 @@ class ChatReport(Base):
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="open", server_default="open")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Username snapshot (not a users.id FK) for the same reason question_text/
+    # answer_text are snapshots rather than joins — stays readable even if
+    # that staff account is later deleted. Cleared on reopen.
+    resolved_by: Mapped[str | None] = mapped_column(String(150), nullable=True)

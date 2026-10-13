@@ -33,11 +33,11 @@ export default function CategorySelect({
     <select
       value={value ?? ""}
       onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
-      className="rounded border border-slate-300 px-3 py-2 text-sm"
+      className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
     >
-      {allowEmpty && <option value="">No category</option>}
+      {allowEmpty && <option value="" className="dark:bg-night-surface dark:text-slate-100">No category</option>}
       {categories.map((c) => (
-        <option key={c.id} value={c.id}>
+        <option key={c.id} value={c.id} className="dark:bg-night-surface dark:text-slate-100">
           {buildLabel(categories, c)}
         </option>
       ))}

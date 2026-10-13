@@ -20,7 +20,7 @@ export default function ChatInput({
   }
 
   return (
-    <div className="relative z-10 w-full shrink-0 bg-[#fef9f5] dark:bg-transparent">
+    <div className="relative z-10 w-full shrink-0 bg-sawo-border dark:bg-transparent">
       <form onSubmit={handleSubmit} className="mx-auto flex w-full max-w-2xl items-center gap-2 px-4 py-3">
         {/* The rim glare lives on a sibling overlay: <input> can't host pseudo-elements */}
         <div className="relative flex-1">

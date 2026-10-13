@@ -1,4 +1,7 @@
-from fastapi import Depends, HTTPException, status
+import hashlib
+import secrets
+
+from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +12,32 @@ from app.models.user import User
 from app.schemas.admin import DangerousActionConfirm
 
 DANGEROUS_ACTION_PHRASE = "DELETE THIS"
+
+# Private-conversation ownership for the no-login chat widget: a random,
+# httpOnly, opaque token identifies "this browser" without ever being a staff
+# identity. Only its hash is ever stored or queried — the raw token never
+# leaves the cookie (not logged, not echoed in any response body).
+OWNER_COOKIE_NAME = "helpdesk_owner"
+OWNER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
+
+
+def _hash_owner_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+async def get_owner_hash(request: Request, response: Response) -> str:
+    token = request.cookies.get(OWNER_COOKIE_NAME)
+    if not token:
+        token = secrets.token_urlsafe(32)
+        response.set_cookie(
+            OWNER_COOKIE_NAME,
+            token,
+            max_age=OWNER_COOKIE_MAX_AGE,
+            httponly=True,
+            samesite="lax",
+            secure=request.url.scheme == "https",
+        )
+    return _hash_owner_token(token)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login", auto_error=False)
 

@@ -32,6 +32,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/admin/faqs", label: "FAQs", icon: "fa-solid fa-circle-question", adminOnly: false },
   { href: "/admin/knowledge", label: "General Knowledge", icon: "fa-solid fa-brain", adminOnly: false },
   { href: "/admin/logs", label: "Chat Logs", icon: "fa-solid fa-comments", adminOnly: false },
+  { href: "/admin/reports", label: "Reports", icon: "fa-solid fa-flag", adminOnly: false },
   { href: "/admin/analytics", label: "Analytics", icon: "fa-solid fa-chart-line", adminOnly: false },
   { href: "/admin/settings", label: "Settings", icon: "fa-solid fa-gear", adminOnly: true },
   { href: "/admin/users", label: "Users", icon: "fa-solid fa-users", adminOnly: true },
@@ -193,7 +194,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
       {/* Mobile-only topbar (≤768px) — hamburger + logo + theme toggle.
           The page title itself is intentionally left to the (always-visible)
-          per-page header below rather than duplicated here. */}
+          per-page header below rather than duplicated here. The reports
+          bell lives in that per-page header too (PageHeader itself), not
+          here, so it isn't duplicated. */}
       <header className="cms-topbar">
         <button
           type="button"

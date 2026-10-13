@@ -100,8 +100,8 @@ export default function UnansweredTab({ onChange }: { onChange?: () => void }) {
             }}
             className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
           >
-            <option value="recent">Most recent</option>
-            <option value="frequency">Most asked</option>
+            <option value="recent" className="dark:bg-night-surface dark:text-slate-100">Most recent</option>
+            <option value="frequency" className="dark:bg-night-surface dark:text-slate-100">Most asked</option>
           </select>
           <select
             value={statusFilter}
@@ -111,9 +111,9 @@ export default function UnansweredTab({ onChange }: { onChange?: () => void }) {
             }}
             className="rounded border border-slate-300 px-3 py-2 text-sm dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
           >
-            <option value="pending">Pending</option>
-            <option value="answered">Answered</option>
-            <option value="">All</option>
+            <option value="pending" className="dark:bg-night-surface dark:text-slate-100">Pending</option>
+            <option value="answered" className="dark:bg-night-surface dark:text-slate-100">Answered</option>
+            <option value="" className="dark:bg-night-surface dark:text-slate-100">All</option>
           </select>
         </div>
       </div>

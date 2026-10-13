@@ -1,4 +1,5 @@
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -530,19 +531,65 @@ async def _find_family_entries(
     return entries
 
 
+DeltaCallback = Callable[[str], Awaitable[None]]
+
+
+async def _generate_answer(
+    engine, system_prompt: str, context: str, question: str,
+    history: list[tuple[str, str]] | None, on_delta: DeltaCallback | None,
+) -> str:
+    """engine.generate(), optionally passing the reply to `on_delta` piece by
+    piece as it is written. The returned text is the same either way; the
+    caller still runs every post-generation check on it.
+
+    The opening is held back until it can no longer turn into the refusal
+    sentinel, so a "NOT_FOUND" reply never flashes on screen before the
+    fallback message replaces it."""
+    stream = getattr(engine, "generate_stream", None)
+    if on_delta is None or stream is None:
+        return await engine.generate(system_prompt, context, question, temperature=0, history=history)
+
+    parts: list[str] = []
+    held = ""
+    released = False
+    async for piece in stream(system_prompt, context, question, temperature=0, history=history):
+        parts.append(piece)
+        if released:
+            await on_delta(_sanitize_text(piece))
+            continue
+        held += piece
+        opening = held.lstrip()
+        if opening and not REFUSAL_SENTINEL.startswith(opening) and not opening.startswith(REFUSAL_SENTINEL):
+            released = True
+            await on_delta(_sanitize_text(opening))
+    return "".join(parts).strip()
+
+
 async def answer_question(
-    db: AsyncSession, question: str, session_id: str, ip_address: str | None = None
+    db: AsyncSession,
+    question: str,
+    session_id: str,
+    ip_address: str | None = None,
+    on_delta: DeltaCallback | None = None,
 ) -> RagResult:
+    """`on_delta`, when given, receives the answer text while it is being
+    generated. It is a preview only: the returned RagResult.answer is the
+    final text and may differ (cleaned up, or replaced by a fallback when a
+    check after generation rejects the reply)."""
     # Lets every AI call this question triggers (relevance check, embedding,
     # generation, grounding check) record which conversation it belongs to
     # without threading session_id through AIEngine.generate()/embed() and
     # every helper below that calls them — see services/ai_usage.py.
     with session_context(session_id):
-        return await _answer_question_impl(db, question, session_id, ip_address)
+        return await _answer_question_impl(db, question, session_id, ip_address, on_delta)
 
 
 async def _answer_question_impl(
-    db: AsyncSession, question: str, session_id: str, ip_address: str | None = None
+    db: AsyncSession,
+    question: str,
+    session_id: str,
+    ip_address: str | None = None,
+    on_delta: DeltaCallback | None = None,
 ) -> RagResult:
     settings_values = await get_all_settings(db)
     fallback_message = settings_values[keys.FALLBACK_MESSAGE]
@@ -894,11 +941,15 @@ async def _answer_question_impl(
 
     context = "\n\n".join(context_parts)
 
+    # Only a Library-backed answer is previewed while it's written. An
+    # FAQ-only answer still has to pass the grounding check below before
+    # anyone sees it, and FAQ contexts are small enough to generate quickly.
+    preview = on_delta if matched_vault_ids else None
     try:
         with feature_context(FEATURE_CHAT_ANSWER_GENERATION):
-            generated = await engine.generate(
-                _generation_prompt(question_scope, language, linked), context, question,
-                temperature=0, history=history_for_generation,
+            generated = await _generate_answer(
+                engine, _generation_prompt(question_scope, language, linked), context, question,
+                history_for_generation, preview,
             )
     except AIEngineError:
         return await _fallback(

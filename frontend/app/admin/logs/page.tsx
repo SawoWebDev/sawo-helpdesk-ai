@@ -285,6 +285,22 @@ export default function LogsPage() {
 
   useEffect(loadSessions, [page, search, dateFrom, dateTo, ratingFilter]);
 
+  // Deep-linked from the Reports page/bell (?session=...): open straight
+  // into that conversation's thread, independent of whatever page/filters
+  // the session list is currently on.
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("session");
+    if (!requested) return;
+    apiGet<Paginated<SessionSummary>>(
+      `/api/logs/sessions?page=1&page_size=1&session_id=${encodeURIComponent(requested)}`
+    )
+      .then((data) => {
+        if (data.items[0]) openSession(data.items[0]);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     function handleOutside(e: MouseEvent) {
       if (rowMenuRef.current && !rowMenuRef.current.contains(e.target as Node)) setRowMenuFor(null);

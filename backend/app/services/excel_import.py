@@ -7,9 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.crud.category import build_category_path_map, get_or_create_category_path
 from app.crud.faq import create_faq, find_duplicate_faq, list_faqs_all
 from app.rag.reindex import embed_entry
-from app.services.kb_export import text_cells_only
+from app.services.kb_export import parse_faq_status, text_cells_only
 
-TEMPLATE_HEADERS = ["Category", "Question", "Answer", "Image URL", "Reference URL"]
+TEMPLATE_HEADERS = ["Category", "Question", "Answer", "Image URL", "Reference URL", "Status"]
 REQUIRED_HEADERS = ["Category", "Question", "Answer"]
 
 
@@ -25,6 +25,7 @@ def generate_template() -> bytes:
             "Go to Account Settings > Billing and click 'Update Payment Method'.",
             "",
             "https://example.com/billing-help",
+            "Published",
         ]
     )
     buffer = io.BytesIO()
@@ -36,10 +37,12 @@ async def export_faqs(
     db: AsyncSession,
     category_id: int | None = None,
     search: str | None = None,
+    include_drafts: bool = True,
 ) -> bytes:
     """Export FAQ entries (optionally filtered) using the same column layout as
     the import template, so the file can be edited and re-imported."""
-    entries = await list_faqs_all(db, category_id=category_id, search=search)
+    status_filter = None if include_drafts else "published"
+    entries = await list_faqs_all(db, category_id=category_id, search=search, status_filter=status_filter)
     category_paths = await build_category_path_map(db)
 
     wb = Workbook()
@@ -56,6 +59,7 @@ async def export_faqs(
                 entry.answer,
                 (entry.image_urls or [""])[0],
                 (entry.reference_urls or [""])[0],
+                entry.status,
             ]
         )
 
@@ -126,6 +130,7 @@ async def import_workbook(db: AsyncSession, file_bytes: bytes) -> ImportSummary:
         answer = cell("Answer")
         image_url = cell("Image URL")
         reference_url = cell("Reference URL")
+        status_raw = cell("Status")
 
         # Category is optional: FAQEntry.category_id is nullable, and the
         # staff FAQ editor already creates FAQs with no category (category_id:
@@ -143,6 +148,20 @@ async def import_workbook(db: AsyncSession, file_bytes: bytes) -> ImportSummary:
                 RowError(
                     row_number=row_number,
                     reason=f"Missing required field(s): {', '.join(missing_fields)}",
+                )
+            )
+            continue
+
+        # Status round-trips 1:1 with what was exported (blank -> published,
+        # for files exported before this column existed) rather than always
+        # publishing on import — a draft re-imported must come back a draft.
+        status = parse_faq_status(status_raw)
+        if status is None:
+            summary.skipped += 1
+            summary.errors.append(
+                RowError(
+                    row_number=row_number,
+                    reason=f'Status must be "Published" or "Draft" (or blank), got "{status_raw}"',
                 )
             )
             continue
@@ -178,6 +197,7 @@ async def import_workbook(db: AsyncSession, file_bytes: bytes) -> ImportSummary:
                 image_urls=image_urls,
                 reference_urls=reference_urls,
                 source="import",
+                status=status,
             )
             await embed_entry(db, entry)
             await db.commit()

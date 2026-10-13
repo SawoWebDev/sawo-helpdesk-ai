@@ -712,9 +712,9 @@ export default function AnalyticsPage() {
               }}
               className="rounded border border-slate-300 px-2 py-1 text-xs dark:border-white/15 dark:bg-white/5 dark:text-slate-100"
             >
-              <option value="">All models</option>
+              <option value="" className="dark:bg-night-surface dark:text-slate-100">All models</option>
               {(modelUsage ?? []).map((m) => (
-                <option key={m.model} value={m.model}>
+                <option key={m.model} value={m.model} className="dark:bg-night-surface dark:text-slate-100">
                   {m.model}
                 </option>
               ))}

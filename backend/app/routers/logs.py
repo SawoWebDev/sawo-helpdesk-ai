@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
@@ -96,6 +96,55 @@ async def list_reports(
     )
 
 
+@router.post("/reports/{report_id}/resolve", response_model=ChatReportOut)
+async def resolve_report(
+    report_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(require_agent_or_admin)
+):
+    """Marks a "report a problem" entry resolved — e.g. once someone has
+    fixed the Library/FAQ content it was complaining about. No destructive
+    effect on the report itself, so any agent/admin can do this (same gating
+    as the rest of this router, just also captured here as `user` for the
+    resolved_by audit field)."""
+    report = await db.get(ChatReport, report_id)
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+    report.status = "resolved"
+    report.resolved_at = datetime.now(timezone.utc)
+    report.resolved_by = user.username
+    await db.commit()
+    await db.refresh(report)
+    return report
+
+
+@router.post("/reports/{report_id}/reopen", response_model=ChatReportOut)
+async def reopen_report(
+    report_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(require_agent_or_admin)
+):
+    """Flips a resolved report back to open — e.g. it turned out the fix
+    didn't stick. Clears resolved_at/resolved_by: once it's open again,
+    nobody has resolved it."""
+    report = await db.get(ChatReport, report_id)
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+    report.status = "open"
+    report.resolved_at = None
+    report.resolved_by = None
+    await db.commit()
+    await db.refresh(report)
+    return report
+
+
+@router.delete("/reports/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_report(report_id: int, db: AsyncSession = Depends(get_db)):
+    """Deletes a report entry itself (not the underlying chat log) — for
+    reports that were a mistake or a duplicate."""
+    report = await db.get(ChatReport, report_id)
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+    await db.delete(report)
+    await db.commit()
+
+
 @router.get("/sessions", response_model=PaginatedResponse)
 async def list_sessions(
     page: int = Query(1, ge=1),
@@ -104,6 +153,7 @@ async def list_sessions(
     start_at: datetime | None = Query(None, description="Only sessions with activity at or after this timestamp"),
     end_at: datetime | None = Query(None, description="Only sessions with activity at or before this timestamp"),
     rating: str | None = Query(None, pattern="^(up|down)$", description="Only sessions with at least one message rated this way"),
+    session_id: str | None = Query(None, description="Only this one session — e.g. to resolve a report's deep link to its summary"),
     db: AsyncSession = Depends(get_db),
 ):
     """Chat Logs grouped by session — one row per conversation rather than
@@ -122,6 +172,8 @@ async def list_sessions(
         )
 
     qualifying = select(ChatLog.session_id).where(ChatLog.session_id.is_not(None)).distinct()
+    if session_id:
+        qualifying = qualifying.where(ChatLog.session_id == session_id)
     if search:
         like = f"%{search}%"
         qualifying = qualifying.where(or_(ChatLog.question_text.ilike(like), ChatLog.answer_text.ilike(like)))
